@@ -32,6 +32,8 @@ const authRoutes = require('./routes/authRoutes');
 app.use('/api/auth', authRoutes);
 const professorRoutes = require('./routes/professorRoutes');
 app.use('/api/professor', professorRoutes);
+const studentRoutes = require('./routes/studentRoutes');
+app.use('/api/student', studentRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
