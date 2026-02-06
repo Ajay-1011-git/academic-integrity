@@ -29,3 +29,4 @@ Thumbs.db
 firebase-debug.log
 
 .cache/
+firebase-service-account.json
