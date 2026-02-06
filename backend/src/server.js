@@ -30,6 +30,8 @@ app.get('/api/health', (req, res) => {
 });
 const authRoutes = require('./routes/authRoutes');
 app.use('/api/auth', authRoutes);
+const professorRoutes = require('./routes/professorRoutes');
+app.use('/api/professor', professorRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

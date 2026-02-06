@@ -39,7 +39,7 @@ function checkVITEmail(req, res, next) {
   next();
 }
 
-async function checkRole(allowedRoles) {
+function checkRole(allowedRoles) {
   return async (req, res, next) => {
     try {
       const { db } = require('../config/firebase');
@@ -72,7 +72,6 @@ async function checkRole(allowedRoles) {
     }
   };
 }
-
 module.exports = {
   verifyToken,
   checkVITEmail,
