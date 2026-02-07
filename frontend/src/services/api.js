@@ -42,6 +42,21 @@ export const professorAPI = {
   evaluateSubmission: (data) => api.post('/api/professor/evaluate', data),
   overrideScore: (scoreId, data) => api.patch(`/api/professor/scores/${scoreId}/override`, data),
   getScores: (assignmentId) => api.get(`/api/professor/scores/assignment/${assignmentId}`),
+
+  // ==================== OLLAMA AI EVALUATION (100% FREE!) ====================
+  
+  /**
+   * Auto-evaluate submission using Ollama (completely free!)
+   * @param {string} submissionId - ID of the submission to evaluate
+   * @returns {Promise} Evaluation results with scores and feedback
+   */
+  ollamaEvaluate: (submissionId) => api.post('/api/professor/ollama-evaluate', { submissionId }),
+
+  /**
+   * Check if Ollama is running and available
+   * @returns {Promise} Ollama status and available models
+   */
+  checkOllamaHealth: () => api.get('/api/professor/ollama-health'),
 };
 
 export const studentAPI = {

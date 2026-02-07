@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { professorAPI } from '../../services/api';
 
-export default function EvaluateSubmission() {
+export default function EvaluateSubmissionAI() {
   const [submission, setSubmission] = useState(null);
   const [rubric, setRubric] = useState(null);
   const [plagiarismScore, setPlagiarismScore] = useState(0);
@@ -30,10 +30,11 @@ export default function EvaluateSubmission() {
         const sub = location.state.submission;
         setSubmission(sub);
 
-        // Fetch assignment to get weightages
+        // Fetch assignment
         const assignmentRes = await professorAPI.getAssignmentById(sub.assignmentId);
         setAssignment(assignmentRes.data.assignment);
 
+        // Fetch rubric
         const rubricRes = await professorAPI.getRubricByAssignment(sub.assignmentId);
         
         if (!rubricRes.data.rubric) {
@@ -65,17 +66,14 @@ export default function EvaluateSubmission() {
     }
   }
 
-  // Calculate final score out of 10
+  // Calculate final score
   function calculateFinalScore(plagScore, criteriaScoresList, plagWeightage, criteriaWeightage) {
-    // Calculate total criteria points earned
     const totalCriteriaPoints = criteriaScoresList.reduce((sum, score) => sum + score.points, 0);
     const totalCriteriaMaxPoints = criteriaScoresList.reduce((sum, score) => sum + score.maxPoints, 0);
     
-    // Convert to percentages
-    const plagiarismPercentage = plagScore / 100; // 0-1 scale
-    const criteriaPercentage = totalCriteriaPoints / totalCriteriaMaxPoints; // 0-1 scale
+    const plagiarismPercentage = plagScore / 100;
+    const criteriaPercentage = totalCriteriaPoints / totalCriteriaMaxPoints;
     
-    // Apply weightages and scale to 10
     const weightedPlagiarismScore = plagiarismPercentage * (plagWeightage / 100) * 10;
     const weightedCriteriaScore = criteriaPercentage * (criteriaWeightage / 100) * 10;
     
@@ -90,7 +88,6 @@ export default function EvaluateSubmission() {
     };
   }
 
-  // Update final score whenever plagiarism or criteria scores change
   useEffect(() => {
     if (assignment && criteriaScores.length > 0) {
       const result = calculateFinalScore(
@@ -103,124 +100,65 @@ export default function EvaluateSubmission() {
     }
   }, [plagiarismScore, criteriaScores, assignment]);
 
-  // AI-POWERED AUTOMATIC EVALUATION
+  // ==================== OLLAMA AI EVALUATION (FREE!) ====================
   async function handleAutoEvaluate() {
     setEvaluating(true);
     setError('');
 
     try {
-      // Simulate AI analysis (in production, this would call your AI backend)
-      const analysis = await analyzeSubmissionWithAI(
-        submission.fileContent,
-        rubric.criteria
-      );
+      console.log('🤖 Starting Ollama AI evaluation (100% Free!)...');
+      
+      // Call the Ollama evaluation endpoint
+      const response = await professorAPI.ollamaEvaluate(submissionId);
+      
+      if (response.data.success) {
+        const { evaluation, metadata } = response.data;
+        
+        // Set plagiarism score
+        setPlagiarismScore(evaluation.plagiarismScore);
+        
+        // Set criteria scores
+        setCriteriaScores(evaluation.criteriaScores);
+        
+        // Set feedback
+        setFeedback(evaluation.feedback);
+        
+        // Store AI analysis metadata
+        setAiAnalysis({
+          finalScore: evaluation.finalScore,
+          breakdown: evaluation.breakdown,
+          plagiarismDetails: metadata.plagiarismDetails,
+          plagiarismAnalysis: metadata.plagiarismAnalysis,
+          strengths: metadata.strengths,
+          improvements: metadata.improvements,
+          evaluatedAt: metadata.evaluatedAt,
+          usingOllama: metadata.usingOllama,
+          model: metadata.model
+        });
 
-      // Set the AI-generated scores
-      setPlagiarismScore(analysis.plagiarismScore);
-      setCriteriaScores(analysis.criteriaScores);
-      setFeedback(analysis.feedback);
-      setAiAnalysis(analysis);
+        console.log('✅ Ollama evaluation complete!');
+      } else {
+        throw new Error('AI evaluation failed');
+      }
 
     } catch (err) {
-      setError('AI evaluation failed: ' + err.message);
+      console.error('Ollama evaluation error:', err);
+      
+      // Provide helpful error messages
+      let errorMsg = 'AI evaluation failed';
+      
+      if (err.response?.data?.error === 'Ollama is not running') {
+        errorMsg = '🔴 Ollama is not running. Please start it:\n\n1. Open a terminal\n2. Run: ollama serve\n3. Try evaluation again';
+      } else if (err.response?.data?.help) {
+        errorMsg = `${err.response.data.error}\n\n${err.response.data.help}`;
+      } else {
+        errorMsg = err.response?.data?.message || err.message;
+      }
+      
+      setError(errorMsg);
     } finally {
       setEvaluating(false);
     }
-  }
-
-  // AI Analysis Function (Mock - replace with actual AI API)
-  async function analyzeSubmissionWithAI(content, criteria) {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Simple heuristic analysis (replace with actual AI/ML model)
-    const wordCount = content.split(/\s+/).length;
-    const hasReferences = /references|bibliography|works cited/i.test(content);
-    const hasCitations = /\[\d+\]|\(\d{4}\)|et al\./i.test(content);
-    const paragraphCount = content.split(/\n\n+/).length;
-    
-    // Check for potential plagiarism indicators (very basic)
-    const suspiciousPhrases = [
-      'according to wikipedia',
-      'source: wikipedia',
-      'copied from',
-      'taken from'
-    ];
-    const hasSuspiciousContent = suspiciousPhrases.some(phrase => 
-      content.toLowerCase().includes(phrase)
-    );
-
-    // Calculate plagiarism score (higher = less plagiarism)
-    let plagiarismScore = 85;
-    if (hasSuspiciousContent) plagiarismScore -= 30;
-    if (wordCount < 100) plagiarismScore -= 10;
-    if (!hasReferences && wordCount > 300) plagiarismScore -= 15;
-
-    // Evaluate each criterion
-    const evaluatedScores = criteria.map(criterion => {
-      let score = 0;
-      const criterionName = criterion.name.toLowerCase();
-
-      if (criterionName.includes('content') || criterionName.includes('quality')) {
-        // Content quality based on depth
-        if (wordCount > 500) score = criterion.maxPoints * 0.9;
-        else if (wordCount > 300) score = criterion.maxPoints * 0.75;
-        else if (wordCount > 150) score = criterion.maxPoints * 0.6;
-        else score = criterion.maxPoints * 0.4;
-      } 
-      else if (criterionName.includes('structure') || criterionName.includes('organization')) {
-        // Structure based on paragraphs
-        if (paragraphCount >= 5) score = criterion.maxPoints * 0.85;
-        else if (paragraphCount >= 3) score = criterion.maxPoints * 0.7;
-        else score = criterion.maxPoints * 0.5;
-      }
-      else if (criterionName.includes('citation') || criterionName.includes('reference')) {
-        // Citations
-        if (hasReferences && hasCitations) score = criterion.maxPoints * 0.9;
-        else if (hasCitations) score = criterion.maxPoints * 0.7;
-        else if (hasReferences) score = criterion.maxPoints * 0.5;
-        else score = criterion.maxPoints * 0.2;
-      }
-      else {
-        // Default scoring
-        score = criterion.maxPoints * 0.7;
-      }
-
-      return {
-        ...criterion,
-        points: Math.round(score)
-      };
-    });
-
-    // Generate feedback
-    let feedbackText = `AI Analysis Summary:\n\n`;
-    feedbackText += `📊 Word Count: ${wordCount}\n`;
-    feedbackText += `📝 Paragraphs: ${paragraphCount}\n`;
-    feedbackText += `📚 References Found: ${hasReferences ? 'Yes' : 'No'}\n`;
-    feedbackText += `🔗 Citations Found: ${hasCitations ? 'Yes' : 'No'}\n\n`;
-    
-    feedbackText += `Strengths:\n`;
-    if (wordCount > 400) feedbackText += `- Good content length and depth\n`;
-    if (hasReferences) feedbackText += `- Includes references section\n`;
-    if (hasCitations) feedbackText += `- Uses in-text citations\n`;
-    
-    feedbackText += `\nAreas for Improvement:\n`;
-    if (wordCount < 200) feedbackText += `- Content could be more detailed\n`;
-    if (!hasReferences) feedbackText += `- Missing references/bibliography\n`;
-    if (!hasCitations) feedbackText += `- Could benefit from more citations\n`;
-    if (paragraphCount < 3) feedbackText += `- Consider better paragraph organization\n`;
-
-    return {
-      plagiarismScore: Math.max(0, Math.min(100, plagiarismScore)),
-      criteriaScores: evaluatedScores,
-      feedback: feedbackText,
-      metrics: {
-        wordCount,
-        paragraphCount,
-        hasReferences,
-        hasCitations
-      }
-    };
   }
 
   function updateCriteriaScore(index, points) {
@@ -294,8 +232,9 @@ export default function EvaluateSubmission() {
           </button>
         </div>
 
+        {/* Submission Header */}
         <div className="bg-white rounded-lg shadow px-8 py-6 mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Evaluate Submission</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">AI-Powered Evaluation</h2>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500">Student</p>
@@ -316,13 +255,14 @@ export default function EvaluateSubmission() {
           </div>
         </div>
 
+        {/* Submission Content with AI Button */}
         <div className="bg-white rounded-lg shadow px-8 py-6 mb-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-gray-900">Submission Content</h3>
             <button
               onClick={handleAutoEvaluate}
               disabled={evaluating}
-              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+              className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 flex items-center gap-2 shadow-lg transform transition hover:scale-105"
             >
               {evaluating ? (
                 <>
@@ -330,34 +270,85 @@ export default function EvaluateSubmission() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Analyzing...
+                  Analyzing with Ollama AI...
                 </>
               ) : (
                 <>
-                  🤖 Auto-Evaluate with AI
+                  <span className="text-xl">🦙</span>
+                  Auto-Evaluate with Ollama (FREE!)
                 </>
               )}
             </button>
           </div>
-          <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto">
+          <div className="bg-gray-50 p-4 rounded-md max-h-96 overflow-y-auto border border-gray-200">
             <pre className="whitespace-pre-wrap text-sm font-mono">{submission.fileContent}</pre>
           </div>
         </div>
 
+        {/* AI Analysis Summary */}
         {aiAnalysis && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <h4 className="font-semibold text-blue-900 mb-2">✨ AI Analysis Complete</h4>
-            <div className="text-sm text-blue-800">
-              <p>📊 Word Count: {aiAnalysis.metrics.wordCount}</p>
-              <p>📝 Paragraphs: {aiAnalysis.metrics.paragraphCount}</p>
-              <p>📚 References: {aiAnalysis.metrics.hasReferences ? '✓' : '✗'}</p>
-              <p>🔗 Citations: {aiAnalysis.metrics.hasCitations ? '✓' : '✗'}</p>
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-lg p-6 mb-6">
+            <h4 className="font-bold text-green-900 mb-4 flex items-center gap-2">
+              <span className="text-2xl">🦙</span>
+              Ollama AI Analysis Complete (100% Free!)
+            </h4>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600">Plagiarism Detection</p>
+                <p className="text-2xl font-bold text-green-900">{plagiarismScore}/100</p>
+                <p className="text-xs text-gray-500 mt-1">Local algorithm</p>
+              </div>
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600">Content Quality</p>
+                <p className="text-2xl font-bold text-emerald-900">
+                  {aiAnalysis.breakdown?.avgCriteriaScore?.toFixed(1) || '0'}/100
+                </p>
+              </div>
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <p className="text-sm text-gray-600">AI Model</p>
+                <p className="text-lg font-bold text-blue-900">{aiAnalysis.model || 'llama2'}</p>
+                <p className="text-xs text-gray-500 mt-1">Running locally</p>
+              </div>
+            </div>
+            
+            {aiAnalysis.plagiarismAnalysis && (
+              <div className="mt-4 bg-blue-50 rounded p-3">
+                <p className="font-semibold text-blue-900 mb-2">🔍 Plagiarism Analysis:</p>
+                <p className="text-sm text-blue-800">{aiAnalysis.plagiarismDetails}</p>
+              </div>
+            )}
+            
+            {aiAnalysis.strengths && aiAnalysis.strengths.length > 0 && (
+              <div className="mt-4 bg-green-50 rounded p-3">
+                <p className="font-semibold text-green-900 mb-2">✅ Strengths:</p>
+                <ul className="text-sm text-green-800 space-y-1">
+                  {aiAnalysis.strengths.map((s, i) => (
+                    <li key={i}>• {s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {aiAnalysis.improvements && aiAnalysis.improvements.length > 0 && (
+              <div className="mt-3 bg-yellow-50 rounded p-3">
+                <p className="font-semibold text-yellow-900 mb-2">📈 Areas for Improvement:</p>
+                <ul className="text-sm text-yellow-800 space-y-1">
+                  {aiAnalysis.improvements.map((i, idx) => (
+                    <li key={idx}>• {i}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center gap-2 text-sm text-gray-600">
+              <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              <span>Evaluated locally with Ollama - No API costs!</span>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="rounded-md bg-red-50 p-4 mb-4">
+          <div className="rounded-md bg-red-50 border border-red-200 p-4 mb-4">
             <p className="text-sm text-red-800">{error}</p>
           </div>
         )}
@@ -396,7 +387,6 @@ export default function EvaluateSubmission() {
                 </div>
               </div>
 
-              {/* Score Grade Indicator */}
               <div className="mt-4">
                 <div className="flex justify-center items-center gap-2">
                   <span className="text-2xl">
@@ -410,7 +400,6 @@ export default function EvaluateSubmission() {
                   </span>
                 </div>
                 
-                {/* Visual Progress Bar */}
                 <div className="mt-3 w-full bg-white/30 rounded-full h-3">
                   <div 
                     className="bg-white rounded-full h-3 transition-all duration-500"
@@ -422,10 +411,11 @@ export default function EvaluateSubmission() {
           </div>
         )}
 
+        {/* Evaluation Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow px-8 py-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Evaluation Scores</h3>
           <p className="text-sm text-gray-600 mb-4">
-            AI has analyzed the submission. You can adjust scores manually if needed.
+            AI has analyzed the submission. You can review and adjust scores manually if needed.
           </p>
 
           <div className="mb-6">
@@ -441,7 +431,7 @@ export default function EvaluateSubmission() {
               value={plagiarismScore}
               onChange={(e) => setPlagiarismScore(parseInt(e.target.value) || 0)}
             />
-            <p className="mt-1 text-xs text-gray-500">Higher score = Less plagiarism</p>
+            <p className="mt-1 text-xs text-gray-500">Higher score = Less plagiarism (0 = 100% plagiarized, 100 = 0% plagiarized)</p>
           </div>
 
           <div className="mb-6">
@@ -450,7 +440,7 @@ export default function EvaluateSubmission() {
             </label>
             <div className="space-y-4">
               {criteriaScores.map((criterion, index) => (
-                <div key={index} className="border border-gray-300 rounded-md p-4">
+                <div key={index} className="border border-gray-300 rounded-md p-4 hover:border-indigo-400 transition">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <p className="font-medium text-gray-900">{criterion.name}</p>
@@ -479,8 +469,8 @@ export default function EvaluateSubmission() {
               Feedback
             </label>
             <textarea
-              rows="8"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+              rows="10"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
               placeholder="AI-generated feedback (you can edit this)"
@@ -491,16 +481,16 @@ export default function EvaluateSubmission() {
             <button
               type="button"
               onClick={() => navigate(`/professor/submissions/${submission.assignmentId}`)}
-              className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="flex-1 py-3 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || plagiarismScore === 0}
-              className="flex-1 py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              className="flex-1 py-3 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 font-medium"
             >
-              {submitting ? 'Submitting...' : 'Submit Evaluation'}
+              {submitting ? 'Submitting...' : 'Submit Final Evaluation'}
             </button>
           </div>
         </form>
