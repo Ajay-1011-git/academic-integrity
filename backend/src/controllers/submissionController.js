@@ -5,7 +5,7 @@ const { validateFileSize, validateFileType, calculateFileHash } = require('../ut
 async function submitAssignment(req, res) {
   try {
     const studentId = req.user.uid;
-    const { assignmentId, fileName, fileContent, fileType } = req.body;
+    const { assignmentId, fileName, fileContent, fileType, submissionType, blockchainTxHash } = req.body;
 
     const assignment = await getDocument(collections.ASSIGNMENTS, assignmentId);
 
@@ -59,6 +59,9 @@ async function submitAssignment(req, res) {
       status: 'final',
       version: 1,
       isLocked: true,
+      submissionType: submissionType || 'direct',
+      blockchainTxHash: blockchainTxHash || null,
+      blockchainVerified: submissionType === 'blockchain' && blockchainTxHash ? true : false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -93,17 +96,23 @@ async function submitAssignment(req, res) {
       'submit',
       'submission',
       submission.id,
-      { created: submissionData }
+      { 
+        created: submissionData,
+        submissionMethod: submissionType || 'direct',
+        blockchainHash: blockchainTxHash || 'N/A'
+      }
     );
 
     return res.status(201).json({
-      message: 'Assignment submitted successfully',
+      message: `Assignment submitted successfully via ${submissionType === 'blockchain' ? 'blockchain' : 'direct submission'}`,
       submission: {
         id: submission.id,
         assignmentId: submission.assignmentId,
         fileName: submission.fileName,
         submittedAt: submission.submittedAt,
-        status: submission.status
+        status: submission.status,
+        submissionType: submission.submissionType,
+        blockchainVerified: submission.blockchainVerified
       }
     });
 

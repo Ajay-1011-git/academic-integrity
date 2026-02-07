@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI } from '../../services/api';
-import blockchainService from '../../services/blockchain';
+import { submitToBlockchain, connectWallet, getWalletAddress } from '../../services/blockchain';
 
 export default function SubmitAssignment() {
   const [assignment, setAssignment] = useState(null);
@@ -10,9 +10,9 @@ export default function SubmitAssignment() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
+  const [submittingBlockchain, setSubmittingBlockchain] = useState(false);
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
-  const [blockchainStatus, setBlockchainStatus] = useState('');
   const { assignmentId } = useParams();
   const navigate = useNavigate();
 
@@ -24,7 +24,7 @@ export default function SubmitAssignment() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (content && !loading && walletConnected) {
+      if (content && !loading) {
         saveDraft(true);
       }
     }, 3000);
@@ -33,33 +33,17 @@ export default function SubmitAssignment() {
   }, [content]);
 
   async function checkWalletConnection() {
-    try {
-      if (blockchainService.isConnected()) {
-        setWalletConnected(true);
-        setWalletAddress(blockchainService.getAddress());
-      }
-    } catch (error) {
-      console.log('Wallet not connected');
-    }
-  }
-
-  async function connectWallet() {
-    try {
-      setBlockchainStatus('Connecting wallet...');
-      const address = await blockchainService.connectWallet();
+    const address = getWalletAddress();
+    if (address) {
       setWalletConnected(true);
       setWalletAddress(address);
-      setBlockchainStatus('Wallet connected!');
-      setTimeout(() => setBlockchainStatus(''), 2000);
-    } catch (error) {
-      setError(error.message);
-      setBlockchainStatus('');
     }
   }
 
   async function fetchAssignment() {
     try {
       const response = await studentAPI.getAssignmentById(assignmentId);
+      console.log('📋 Assignment loaded:', response.data.assignment);
       setAssignment(response.data.assignment);
     } catch (err) {
       setError('Failed to load assignment');
@@ -78,107 +62,159 @@ export default function SubmitAssignment() {
   }
 
   async function saveDraft(auto = false) {
-  if (!content) return;
+    if (!content) return;
 
-  setAutoSaving(true);
-  let blockchainData = {};
-
-  try {
-    if (walletConnected) {
-      setBlockchainStatus('Recording on blockchain...');
-      
-      // Browser-compatible SHA-256 hashing
-      const encoder = new TextEncoder();
-      const data = encoder.encode(content);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      
-      const txData = await blockchainService.recordSubmission(
+    setAutoSaving(true);
+    try {
+      await studentAPI.saveDraft({
         assignmentId,
-        walletAddress,
-        contentHash,
-        false
-      );
+        content,
+        autoSave: auto
+      });
+    } catch (err) {
+      console.error('Failed to save draft');
+    } finally {
+      setAutoSaving(false);
+    }
+  }
 
-      blockchainData = {
-        blockchainTxHash: txData.transactionHash,
-        blockchainVersion: txData.version
-      };
+  // ============================================================================
+  // DIRECT SUBMISSION - No blockchain, no fees
+  // ============================================================================
+  async function handleDirectSubmit(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setError('');
 
-      setBlockchainStatus('✓ Recorded on blockchain');
-      setTimeout(() => setBlockchainStatus(''), 2000);
+    if (!fileName) {
+      setError('Please enter a file name');
+      return;
     }
 
-    await studentAPI.saveDraft({
-      assignmentId,
-      content,
-      autoSave: auto,
-      ...blockchainData
-    });
-  } catch (err) {
-    console.error('Failed to save draft:', err);
-    setBlockchainStatus('');
-  } finally {
-    setAutoSaving(false);
+    if (!content) {
+      setError('Please enter content');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const submissionData = {
+        assignmentId,
+        fileName,
+        fileContent: content,
+        fileType: '.txt',
+        submissionType: 'direct'
+      };
+
+      console.log('📤 Sending direct submission:', submissionData);
+
+      const response = await studentAPI.submitAssignment(submissionData);
+      
+      console.log('✅ Submission successful:', response);
+      
+      alert('✅ Assignment submitted successfully (Direct mode - No blockchain fees)');
+      navigate('/student/dashboard');
+    } catch (err) {
+      // DETAILED ERROR LOGGING
+      console.error('❌ SUBMISSION ERROR - Full error:', err);
+      console.error('❌ SUBMISSION ERROR - Response:', err.response);
+      console.error('❌ SUBMISSION ERROR - Data:', err.response?.data);
+      console.error('❌ SUBMISSION ERROR - Error message:', err.response?.data?.error);
+      console.error('❌ SUBMISSION ERROR - Details:', err.response?.data?.details);
+      console.error('❌ SUBMISSION ERROR - Message:', err.response?.data?.message);
+      
+      // Show detailed error to user
+      const errorMessage = err.response?.data?.error 
+        || err.response?.data?.message 
+        || JSON.stringify(err.response?.data?.details)
+        || err.message 
+        || 'Failed to submit assignment';
+      
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
-  async function handleSubmit(e) {
-  e.preventDefault();
-  setError('');
+  // ============================================================================
+  // BLOCKCHAIN SUBMISSION - Uses Web3
+  // ============================================================================
+  async function handleBlockchainSubmit(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setError('');
 
-  if (!fileName) {
-    setError('Please enter a file name');
-    return;
+    if (!fileName) {
+      setError('Please enter a file name');
+      return;
+    }
+
+    if (!content) {
+      setError('Please enter content');
+      return;
+    }
+
+    setSubmittingBlockchain(true);
+
+    try {
+      // Step 1: Connect wallet if not connected
+      if (!walletConnected) {
+        console.log('🔗 Connecting wallet...');
+        const address = await connectWallet();
+        setWalletAddress(address);
+        setWalletConnected(true);
+        console.log('✅ Wallet connected:', address);
+      }
+
+      // Step 2: Submit to blockchain
+      console.log('⛓️ Submitting to blockchain...');
+      const blockchainResult = await submitToBlockchain({
+        assignmentId,
+        fileName,
+        fileContent: content,
+        studentAddress: walletAddress
+      });
+      console.log('✅ Blockchain transaction:', blockchainResult);
+
+      // Step 3: Submit to backend with blockchain hash
+      const submissionData = {
+        assignmentId,
+        fileName,
+        fileContent: content,
+        fileType: '.txt',
+        submissionType: 'blockchain',
+        blockchainTxHash: blockchainResult.txHash
+      };
+
+      console.log('📤 Sending blockchain submission to backend:', submissionData);
+
+      const response = await studentAPI.submitAssignment(submissionData);
+      
+      console.log('✅ Backend submission successful:', response);
+
+      alert('✅ Assignment submitted successfully with blockchain verification!');
+      navigate('/student/dashboard');
+    } catch (err) {
+      console.error('❌ BLOCKCHAIN ERROR:', err);
+      console.error('❌ BLOCKCHAIN ERROR - Response:', err.response);
+      console.error('❌ BLOCKCHAIN ERROR - Data:', err.response?.data);
+      
+      if (err.message.includes('MetaMask')) {
+        setError('MetaMask not installed. Please use Direct Submit or install MetaMask.');
+      } else if (err.message.includes('rejected')) {
+        setError('Transaction rejected. You can use Direct Submit instead.');
+      } else {
+        const errorMessage = err.response?.data?.error 
+          || err.response?.data?.message 
+          || err.message 
+          || 'Failed to submit to blockchain';
+        setError(errorMessage);
+      }
+    } finally {
+      setSubmittingBlockchain(false);
+    }
   }
-
-  if (!content) {
-    setError('Please enter content');
-    return;
-  }
-
-  if (!walletConnected) {
-    setError('Please connect your wallet to submit');
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    setBlockchainStatus('Recording final submission on blockchain...');
-    
-    // Browser-compatible SHA-256 hashing
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    const txData = await blockchainService.recordSubmission(
-      assignmentId,
-      walletAddress,
-      contentHash,
-      true  // isFinal = true
-    );
-
-    await studentAPI.submitAssignment({
-      assignmentId,
-      fileName,
-      fileContent: content,
-      fileType: assignment?.type === 'code' ? '.txt' : '.txt',
-      blockchainTxHash: txData.transactionHash,
-      blockchainVersion: txData.version
-    });
-
-    navigate('/student/dashboard');
-  } catch (err) {
-    setError(err.response?.data?.error || err.message || 'Failed to submit assignment');
-    setBlockchainStatus('');
-  } finally {
-    setLoading(false);
-  }
-}
 
   if (!assignment) {
     return (
@@ -193,49 +229,37 @@ export default function SubmitAssignment() {
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-lg shadow px-8 py-6">
           <div className="mb-6">
-            <div className="flex justify-between items-start">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">{assignment.title}</h2>
-                <p className="mt-2 text-sm text-gray-600">{assignment.description}</p>
-              </div>
-              {walletConnected ? (
-                <div className="text-right">
-                  <div className="text-xs text-green-600 font-medium">✓ Wallet Connected</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={connectWallet}
-                  className="px-4 py-2 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700"
-                >
-                  Connect Wallet
-                </button>
-              )}
-            </div>
+            <h2 className="text-2xl font-bold text-gray-900">{assignment.title}</h2>
+            <p className="mt-2 text-sm text-gray-600">{assignment.description}</p>
             <div className="mt-4 flex items-center justify-between text-sm">
               <span className="text-gray-500">
                 Due: {new Date(assignment.dueDate).toLocaleString()}
               </span>
-              <div className="flex items-center space-x-4">
-                {autoSaving && (
-                  <span className="text-blue-600">Auto-saving draft...</span>
-                )}
-                {blockchainStatus && (
-                  <span className="text-purple-600">{blockchainStatus}</span>
-                )}
-              </div>
+              {autoSaving && (
+                <span className="text-green-600">Auto-saving draft...</span>
+              )}
             </div>
+
+            {/* Wallet Status */}
+            {walletConnected && (
+              <div className="mt-2 flex items-center gap-2 text-sm">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span className="text-gray-600">
+                  Wallet: {walletAddress.substring(0, 6)}...{walletAddress.substring(38)}
+                </span>
+              </div>
+            )}
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-50 p-4 mb-4">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="rounded-md bg-red-50 p-4 mb-4 border border-red-200">
+              <p className="text-sm text-red-800 font-semibold">Error:</p>
+              <p className="text-sm text-red-800 mt-1">{error}</p>
+              <p className="text-xs text-red-600 mt-2">💡 Check browser console (F12) for detailed error logs</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700">File Name</label>
               <input
@@ -260,7 +284,16 @@ export default function SubmitAssignment() {
               />
             </div>
 
-            <div className="flex space-x-4">
+            {/* Submission Mode Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+              <h4 className="text-sm font-semibold text-blue-900 mb-2">Choose Submission Method:</h4>
+              <div className="text-xs text-blue-800 space-y-1">
+                <p>✅ <strong>Direct Submit:</strong> Fast, free, no blockchain fees (Recommended for demo)</p>
+                <p>🔗 <strong>Blockchain Submit:</strong> Permanent proof on blockchain (Requires MetaMask & gas fees)</p>
+              </div>
+            </div>
+
+            <div className="flex space-x-3">
               <button
                 type="button"
                 onClick={() => navigate('/student/dashboard')}
@@ -271,17 +304,46 @@ export default function SubmitAssignment() {
               <button
                 type="button"
                 onClick={() => saveDraft(false)}
-                disabled={autoSaving || !content || !walletConnected}
+                disabled={autoSaving || !content}
                 className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
-                Save Draft (Blockchain)
+                {autoSaving ? 'Saving...' : 'Save Draft'}
               </button>
               <button
-                type="submit"
-                disabled={loading || !walletConnected}
-                className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                type="button"
+                onClick={handleDirectSubmit}
+                disabled={loading || submittingBlockchain || !fileName || !content}
+                className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Submitting...' : 'Submit Final (Blockchain)'}
+                {loading ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Submitting...
+                  </span>
+                ) : (
+                  '✅ Submit Direct (FREE)'
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleBlockchainSubmit}
+                disabled={loading || submittingBlockchain || !fileName || !content}
+                className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingBlockchain ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Blockchain...
+                  </span>
+                ) : (
+                  '🔗 Submit Blockchain'
+                )}
               </button>
             </div>
           </form>

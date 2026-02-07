@@ -1,208 +1,230 @@
-import { ethers } from 'ethers';
-import detectEthereumProvider from '@metamask/detect-provider';
+// ============================================================================
+// Blockchain service for Web3 integration
+// IMPORTANT: This file must contain ONLY JavaScript functions (NO JSX!)
+// ============================================================================
 
-const CONTRACT_ADDRESS = '0x0ff59967A01d6Fc600eC68Ae9d0a012379e9B5dD';
-const AMOY_CHAIN_ID = 80002;
-
-const CONTRACT_ABI = [
-  "function recordSubmission(string assignmentId, string studentId, string contentHash, bool isFinal) public returns (uint256)",
-  "function getSubmissionHistory(string assignmentId, string studentId) public view returns (tuple(string assignmentId, string studentId, string contentHash, uint256 timestamp, uint256 version, bool isFinal, address submittedBy)[])",
-  "function getSubmissionCount(string assignmentId, string studentId) public view returns (uint256)",
-  "function verifySubmission(string assignmentId, string studentId, string contentHash, uint256 version) public view returns (bool)",
-  "event SubmissionRecorded(string indexed assignmentId, string indexed studentId, string contentHash, uint256 version, bool isFinal, uint256 timestamp, address submittedBy)"
-];
-
-class BlockchainService {
-  constructor() {
-    this.provider = null;
-    this.signer = null;
-    this.contract = null;
-    this.userAddress = null;
-  }
-
-  async connectWallet() {
-    try {
-      const provider = await detectEthereumProvider();
-      
-      if (!provider) {
-        throw new Error('Please install MetaMask browser extension');
-      }
-
-      this.provider = new ethers.providers.Web3Provider(window.ethereum);
-      
-      await this.provider.send("eth_requestAccounts", []);
-      
-      this.signer = this.provider.getSigner();
-      this.userAddress = await this.signer.getAddress();
-      
-      this.contract = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        CONTRACT_ABI,
-        this.signer
-      );
-
-      const network = await this.provider.getNetwork();
-      if (network.chainId !== AMOY_CHAIN_ID) {
-        await this.switchToAmoy();
-      }
-
-      console.log('✅ Wallet connected:', this.userAddress);
-      return this.userAddress;
-    } catch (error) {
-      console.error('❌ Wallet connection error:', error);
-      throw error;
-    }
-  }
-
-  async switchToAmoy() {
-    try {
-      await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x13882' }], // 80002 in hex
-      });
-    } catch (switchError) {
-      // Network not added, let's add it
-      if (switchError.code === 4902) {
-        await window.ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: '0x13882',
-            chainName: 'Polygon Amoy Testnet',
-            nativeCurrency: {
-              name: 'MATIC',
-              symbol: 'MATIC',
-              decimals: 18
-            },
-            rpcUrls: ['https://rpc-amoy.polygon.technology'],
-            blockExplorerUrls: ['https://www.oklink.com/amoy']
-          }]
-        });
-      } else {
-        throw switchError;
-      }
-    }
-  }
-
-  async recordSubmission(assignmentId, studentId, contentHash, isFinal = false) {
+/**
+ * Submit assignment to blockchain
+ * @param {Object} data - Submission data
+ * @returns {Promise<Object>} Transaction result with hash
+ */
+export async function submitToBlockchain(data) {
   try {
-    if (!this.contract) {
-      await this.connectWallet();
+    // Check if MetaMask is installed
+    if (typeof window === 'undefined' || !window.ethereum) {
+      throw new Error('MetaMask not installed. Please install MetaMask or use Direct Submit.');
     }
 
-    // CRITICAL: Re-verify network before every transaction
-    const network = await this.provider.getNetwork();
-    console.log('Current network:', network);
+    // Request account access
+    const accounts = await window.ethereum.request({ 
+      method: 'eth_requestAccounts' 
+    });
     
-    if (network.chainId !== AMOY_CHAIN_ID) {
-      console.log('Wrong network detected, switching...');
-      await this.switchToAmoy();
-      
-      // Reconnect after network switch
-      this.provider = new ethers.providers.Web3Provider(window.ethereum);
-      this.signer = this.provider.getSigner();
-      this.contract = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        CONTRACT_ABI,
-        this.signer
-      );
-    }
+    const account = accounts[0];
+    
+    // Create transaction data
+    const submissionHash = await hashSubmission(data);
+    
+    // Prepare transaction
+    const transactionParameters = {
+      to: account, // Send to self (proof of submission)
+      from: account,
+      value: '0x0', // 0 ETH
+      data: submissionHash, // Include submission hash in data
+    };
 
-    console.log('⛓️ Sending transaction to blockchain...');
-    console.log('Assignment ID:', assignmentId);
-    console.log('Student ID:', studentId);
-    console.log('Content Hash:', contentHash);
-    console.log('Is Final:', isFinal);
+    try {
+      // Send transaction
+      const txHash = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [transactionParameters],
+      });
 
-    const tx = await this.contract.recordSubmission(
-      assignmentId,
-      studentId,
-      contentHash,
-      isFinal,
-      {
-        gasLimit: 300000
+      console.log('Blockchain transaction successful:', txHash);
+
+      return {
+        success: true,
+        txHash: txHash,
+        account: account,
+        timestamp: new Date().toISOString(),
+        message: 'Submitted to blockchain successfully'
+      };
+    } catch (txError) {
+      // User rejected transaction
+      if (txError.code === 4001) {
+        throw new Error('Transaction rejected by user');
       }
-    );
+      
+      // Insufficient funds
+      if (txError.code === -32000) {
+        throw new Error('Insufficient funds for gas. Please use Direct Submit instead.');
+      }
+      
+      throw txError;
+    }
 
-    console.log('📝 Transaction sent:', tx.hash);
-    console.log('⏳ Waiting for confirmation...');
+  } catch (error) {
+    console.error('Blockchain submission error:', error);
+    throw error;
+  }
+}
 
-    const receipt = await tx.wait(1);
-    
-    console.log('✅ Transaction confirmed!');
-    console.log('Receipt:', receipt);
+/**
+ * Create a hash of the submission for blockchain storage
+ * @param {Object} data - Submission data
+ * @returns {Promise<string>} Hex-encoded hash
+ */
+async function hashSubmission(data) {
+  const submissionString = JSON.stringify({
+    assignmentId: data.assignmentId,
+    fileName: data.fileName,
+    contentHash: await simpleHash(data.fileContent),
+    timestamp: Date.now()
+  });
 
-    const event = receipt.events?.find(e => e.event === 'SubmissionRecorded');
-    const version = event ? event.args.version.toNumber() : 1;
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(submissionString);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = '0x' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  return hashHex;
+}
+
+/**
+ * Simple hash function for content
+ */
+async function simpleHash(content) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(content);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Connect to MetaMask wallet
+ * @returns {Promise<string>} Connected wallet address
+ */
+export async function connectWallet() {
+  if (typeof window === 'undefined' || !window.ethereum) {
+    throw new Error('MetaMask not installed');
+  }
+
+  try {
+    const accounts = await window.ethereum.request({ 
+      method: 'eth_requestAccounts' 
+    });
+    return accounts[0];
+  } catch (error) {
+    if (error.code === 4001) {
+      throw new Error('User rejected wallet connection');
+    }
+    throw new Error('Failed to connect wallet: ' + error.message);
+  }
+}
+
+/**
+ * Get currently connected wallet address
+ * @returns {string|null} Wallet address or null
+ */
+export function getWalletAddress() {
+  if (typeof window !== 'undefined' && window.ethereum) {
+    return window.ethereum.selectedAddress;
+  }
+  return null;
+}
+
+/**
+ * Verify a blockchain transaction
+ * @param {string} txHash - Transaction hash to verify
+ * @returns {Promise<Object>} Verification result
+ */
+export async function verifyBlockchainTransaction(txHash) {
+  try {
+    if (typeof window === 'undefined' || !window.ethereum) {
+      throw new Error('MetaMask not available');
+    }
+
+    const receipt = await window.ethereum.request({
+      method: 'eth_getTransactionReceipt',
+      params: [txHash],
+    });
+
+    if (receipt) {
+      return {
+        verified: true,
+        status: receipt.status === '0x1' ? 'success' : 'failed',
+        blockNumber: receipt.blockNumber,
+        timestamp: Date.now()
+      };
+    }
 
     return {
-      transactionHash: receipt.transactionHash,
-      version,
-      blockNumber: receipt.blockNumber,
-      timestamp: new Date().toISOString()
+      verified: false,
+      message: 'Transaction not found or still pending'
     };
   } catch (error) {
-    console.error('❌ Blockchain record error:', error);
+    console.error('Verification error:', error);
+    return {
+      verified: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Get current network information
+ * @returns {Promise<Object>} Network info
+ */
+export async function getNetworkInfo() {
+  if (typeof window === 'undefined' || !window.ethereum) {
+    return { connected: false };
+  }
+
+  try {
+    const chainId = await window.ethereum.request({ 
+      method: 'eth_chainId' 
+    });
     
-    if (error.code === 4001) {
-      throw new Error('Transaction rejected by user');
-    } else if (error.code === -32603) {
-      throw new Error('Insufficient funds for gas');
-    } else if (error.code === 'NETWORK_ERROR') {
-      throw new Error('Network error - please make sure you are on Polygon Amoy');
-    } else {
-      throw error;
-    }
+    const networks = {
+      '0x1': 'Ethereum Mainnet',
+      '0x5': 'Goerli Testnet',
+      '0x89': 'Polygon Mainnet',
+      '0x13881': 'Mumbai Testnet',
+      '0xaa36a7': 'Sepolia Testnet'
+    };
+
+    return {
+      connected: true,
+      chainId: chainId,
+      networkName: networks[chainId] || 'Unknown Network'
+    };
+  } catch (error) {
+    return { connected: false, error: error.message };
   }
 }
 
-  async getSubmissionHistory(assignmentId, studentId) {
-    try {
-      if (!this.contract) {
-        await this.connectWallet();
-      }
-
-      const history = await this.contract.getSubmissionHistory(assignmentId, studentId);
-      
-      return history.map(sub => ({
-        assignmentId: sub.assignmentId,
-        studentId: sub.studentId,
-        contentHash: sub.contentHash,
-        timestamp: new Date(sub.timestamp.toNumber() * 1000).toISOString(),
-        version: sub.version.toNumber(),
-        isFinal: sub.isFinal,
-        submittedBy: sub.submittedBy
-      }));
-    } catch (error) {
-      console.error('Get history error:', error);
-      throw error;
-    }
-  }
-
-  async verifySubmission(assignmentId, studentId, contentHash, version) {
-    try {
-      if (!this.contract) {
-        await this.connectWallet();
-      }
-
-      return await this.contract.verifySubmission(
-        assignmentId,
-        studentId,
-        contentHash,
-        version
-      );
-    } catch (error) {
-      console.error('Verification error:', error);
-      throw error;
-    }
-  }
-
-  isConnected() {
-    return this.contract !== null && this.userAddress !== null;
-  }
-
-  getAddress() {
-    return this.userAddress;
+/**
+ * Listen for account changes
+ * @param {Function} callback - Function to call when account changes
+ */
+export function onAccountChanged(callback) {
+  if (typeof window !== 'undefined' && window.ethereum) {
+    window.ethereum.on('accountsChanged', (accounts) => {
+      callback(accounts[0]);
+    });
   }
 }
 
-export default new BlockchainService();
+/**
+ * Listen for network changes
+ * @param {Function} callback - Function to call when network changes
+ */
+export function onNetworkChanged(callback) {
+  if (typeof window !== 'undefined' && window.ethereum) {
+    window.ethereum.on('chainChanged', (chainId) => {
+      callback(chainId);
+    });
+  }
+}
