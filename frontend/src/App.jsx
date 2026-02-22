@@ -10,6 +10,7 @@ import Submissions from './pages/professor/Submissions';
 import EvaluateSubmission from './pages/professor/EvaluateSubmission';
 import StudentDashboard from './pages/student/Dashboard';
 import SubmitAssignment from './pages/student/SubmitAssignment';
+import ViewSubmission from './pages/student/ViewSubmission';    // ← ADD THIS LINE
 import Scores from './pages/student/Scores';
 
 function App() {
@@ -78,6 +79,17 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* ── ADD THIS ROUTE ── */}
+          <Route
+            path="/student/assignments/:assignmentId/view"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <ViewSubmission />
+              </ProtectedRoute>
+            }
+          />
+
           <Route
             path="/student/scores"
             element={
