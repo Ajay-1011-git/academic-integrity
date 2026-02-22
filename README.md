@@ -1,211 +1,232 @@
-CopyZero – Academic Integrity Platform
+# CopyZero - Academic Integrity Platform
 
-CopyZero is an academic integrity platform designed to help educational institutions ensure authentic student work.
-It combines plagiarism detection, draft tracking, and optional blockchain-based submission verification.
+A web-based platform for assignment submission and AI-powered plagiarism detection with blockchain verification support.
 
-The system supports both professors and students, with clear role-based access and transparent evaluation.
+## Overview
 
-What CopyZero Does
-For Professors
+CopyZero provides a dual-role system for professors and students to manage academic assignments with automated plagiarism detection and evaluation.
 
-Create assignments and evaluation rubrics
+**Key Features:**
+- Role-based access (Professor/Student)
+- Assignment creation and submission management
+- Three-tier plagiarism detection system
+- Blockchain-based draft verification (Polygon Amoy testnet)
+- AI-powered content evaluation
+- Automated grading with detailed feedback
 
-Review all student submissions in one place
+## Technology Stack
 
-Use AI-assisted plagiarism detection
+**Frontend:**
+- React.js
+- React Router
+- Tailwind CSS
+- Firebase Authentication
 
-Manually adjust scores with justification
+**Backend:**
+- Node.js with Express
+- Firebase Firestore (database)
+- HuggingFace Inference API
+- Ethers.js (blockchain integration)
 
-Track student drafts as integrity evidence
+**Blockchain:**
+- Polygon Amoy testnet
+- Smart contracts for draft verification
 
-For Students
+## Plagiarism Detection System
 
-Write and submit assignments securely
+The platform uses a three-check evaluation system:
 
-Auto-save drafts every few seconds
+1. **Student-to-Student Plagiarism Detection**
+   - Model: sentence-transformers/all-MiniLM-L6-v2
+   - Method: Embedding similarity comparison
+   - Compares submissions within the same assignment
 
-Choose between direct submission or blockchain verification
+2. **AI-Generated Text Detection**
+   - Model: Hello-SimpleAI/chatgpt-detector-roberta
+   - Detects AI-written content (ChatGPT, etc.)
+   - Returns confidence score and verdict
 
-View scores and feedback after evaluation
+3. **Content Quality Evaluation**
+   - Model: HuggingFaceH4/zephyr-7b-beta
+   - Evaluates against custom rubric criteria
+   - Provides detailed feedback and scoring
 
-Maintain a complete submission history
+**Final Score Calculation:**
+- Plagiarism Score = MIN(student-plagiarism, AI-detection)
+- Final Grade = (Plagiarism × Weight%) + (Content Quality × Weight%)
 
-Tech Stack
+## Project Structure
 
-Frontend: React, Vite, Tailwind CSS
-
-Backend: Node.js, Express
-
-Database: Firebase Firestore
-
-Authentication: Firebase Auth
-
-AI: Custom plagiarism detection service
-
-Blockchain (optional): Web3.js with MetaMask
-
-Deployment: Vercel (frontend), Render (backend)
-
-Getting Started
-Prerequisites
-
-Node.js (v18 or newer)
-
-npm
-
-Firebase account
-
-Git
-
-Installation
-1. Clone the repository
-git clone https://github.com/YOUR-USERNAME/copyzero.git
-cd copyzero
-
-2. Backend setup
-cd backend
-npm install
-cp .env.example .env
-
-
-Edit .env:
-
-PORT=5000
-NODE_ENV=development
-
-
-Add your Firebase service account file as:
-
-backend/firebase-service-account.json
-
-
-Do not commit this file.
-
-3. Frontend setup
-cd frontend
-npm install
-
-
-Add your Firebase web configuration in:
-
-frontend/src/config/firebase.js
-
-4. Run the project
-
-Backend:
-
-cd backend
-npm run dev
-
-
-Frontend:
-
-cd frontend
-npm run dev
-
-
-Access:
-
-Frontend: http://localhost:5173
-
-Backend API: http://localhost:5000
-
-Project Structure
-copyzero/
-├── backend/
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── middleware/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   └── utils/
-│   └── server.js
-│
+```
+academic-integrity/
 ├── frontend/
 │   ├── src/
-│   │   ├── components/
 │   │   ├── pages/
-│   │   ├── services/
-│   │   └── App.jsx
-│   └── index.html
-│
-├── README.md
-└── LICENSE
+│   │   │   ├── professor/    # Professor dashboard, assignments, evaluation
+│   │   │   └── student/       # Student dashboard, submission, view scores
+│   │   ├── components/        # Reusable UI components
+│   │   ├── services/          # API communication
+│   │   └── context/           # Authentication context
+│   └── public/
+├── backend/
+│   ├── src/
+│   │   ├── controllers/       # Request handlers
+│   │   ├── services/          # Business logic (HuggingFace, blockchain)
+│   │   ├── routes/            # API routes
+│   │   ├── middleware/        # Auth, validation
+│   │   └── utils/             # Helper functions
+│   └── .env                   # Environment variables (not in repo)
+└── contracts/                 # Blockchain smart contracts
+```
 
-How It Works
+## Setup Instructions
 
-Users authenticate using Firebase Auth
+### Prerequisites
 
-Students write submissions with automatic draft saving
+- Node.js (v16+)
+- npm or yarn
+- Firebase project with Firestore enabled
+- HuggingFace API token
+- Polygon Amoy testnet wallet (for blockchain features)
 
-Submissions are saved directly or optionally verified on blockchain
+### Backend Setup
 
-Professors evaluate using AI assistance and manual scoring
+1. Navigate to backend directory:
+```bash
+cd backend
+npm install
+```
 
-Scores and feedback are made available to students
+2. Create `.env` file:
+```env
+PORT=5000
+NODE_ENV=development
+HUGGINGFACE_API_TOKEN=your_token_here
+HUGGINGFACE_CONTENT_MODEL=HuggingFaceH4/zephyr-7b-beta
+PRIVATE_KEY=your_blockchain_private_key
+AMOY_RPC_URL=https://rpc-amoy.polygon.technology
+```
 
-Security Overview
+3. Start the server:
+```bash
+npm run dev
+```
 
-Firebase-based authentication
+### Frontend Setup
 
-Role-based access control
+1. Navigate to frontend directory:
+```bash
+cd frontend
+npm install
+```
 
-Firestore security rules
+2. Configure Firebase in `src/config/firebase.js`:
+```javascript
+const firebaseConfig = {
+  apiKey: "your_api_key",
+  authDomain: "your_project.firebaseapp.com",
+  projectId: "your_project_id",
+  // ... other config
+};
+```
 
-Encrypted storage of submissions
+3. Start the development server:
+```bash
+npm start
+```
 
-Full audit trail for evaluations
+### Firebase Configuration
 
-Optional immutable blockchain proof
+1. Create a Firebase project at https://console.firebase.google.com
+2. Enable Authentication (Email/Password)
+3. Create Firestore database
+4. Deploy Firestore security rules from `firestore.rules`
 
-Deployment
-Backend (Render)
+## User Workflow
 
-Build command: npm install
+### Professor Flow
 
-Start command: npm start
+1. Login with VIT email (@vit.ac.in)
+2. Create assignment with rubric criteria
+3. Set plagiarism and content weightages
+4. Students submit assignments
+5. Auto-evaluate using AI or manually grade
+6. Override scores if needed
+7. View detailed analytics
 
-Add environment variables
+### Student Flow
 
-Store Firebase credentials as secret files
+1. Login with VIT email (@vitstudent.ac.in)
+2. View available assignments
+3. Save drafts (optional blockchain verification)
+4. Submit final assignment
+5. View evaluation results
+6. See detailed feedback and scores
 
-Frontend (Vercel)
+## API Endpoints
 
-Framework: Vite
+**Authentication:**
+- POST `/api/auth/signup` - Register new user
+- POST `/api/auth/login` - User login
+- GET `/api/auth/profile` - Get user profile
 
-Root directory: frontend
+**Professor:**
+- POST `/api/professor/assignments` - Create assignment
+- POST `/api/professor/rubrics` - Create rubric
+- GET `/api/professor/submissions/assignment/:id` - Get submissions
+- POST `/api/professor/ollama-evaluate` - AI evaluation
+- POST `/api/professor/evaluate` - Manual evaluation
 
-Build command: npm run build
+**Student:**
+- GET `/api/student/assignments` - Get available assignments
+- POST `/api/student/submit` - Submit assignment
+- POST `/api/student/drafts` - Save draft
+- GET `/api/student/scores/assignment/:id` - View score
 
-Output directory: dist
+## Evaluation Models
 
-Contributing
+All models run on HuggingFace's free inference API:
 
-Fork the repository
+- **sentence-transformers/all-MiniLM-L6-v2**: 384-dimensional embeddings for similarity comparison
+- **Hello-SimpleAI/chatgpt-detector-roberta**: Binary classification (Human vs AI)
+- **HuggingFaceH4/zephyr-7b-beta**: Instruction-tuned LLM for content evaluation
 
-Create a feature branch
+## Blockchain Integration
 
-Commit your changes
+Drafts can be verified on Polygon Amoy testnet:
+- Each draft saves a hash on-chain
+- Provides tamper-proof timestamp
+- Verifiable submission history
+- Requires Polygon testnet MATIC
 
-Open a pull request
+## Security
 
-Follow existing patterns and keep code readable.
+- VIT email domain verification (@vit.ac.in, @vitstudent.ac.in)
+- Role-based access control
+- Firebase Authentication
+- Firestore security rules
+- API key environment variables
+- No API keys in version control
 
-License
+## Known Limitations
 
-MIT License. See the LICENSE file for details.
+- AI detection works best on older GPT models (GPT-3.5)
+- Newer ChatGPT versions (GPT-4) may not be detected reliably
+- HuggingFace free tier has rate limits
+- First API call may be slow (model cold start)
 
-Summary
+## Contributing
 
-CopyZero focuses on:
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
-Transparent evaluation
+## License
 
-Academic integrity
+This project is licensed under the MIT License.
 
-Secure submissions
+## Contact
 
-Practical tooling for educators
-
-It is designed to be easy to deploy, easy to use, and extensible for future features.
+For questions or issues, please open an issue on GitHub.
