@@ -1,16 +1,22 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+
+// Auth Pages
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+
+// Professor Pages
 import ProfessorDashboard from './pages/professor/Dashboard';
 import CreateAssignment from './pages/professor/CreateAssignment';
 import AssignmentDetails from './pages/professor/AssignmentDetails';
 import Submissions from './pages/professor/Submissions';
 import EvaluateSubmission from './pages/professor/EvaluateSubmission';
+
+// Student Pages
 import StudentDashboard from './pages/student/Dashboard';
 import SubmitAssignment from './pages/student/SubmitAssignment';
-import ViewSubmission from './pages/student/ViewSubmission';    // ← ADD THIS LINE
+import ViewSubmission from './pages/student/ViewSubmission';
 import Scores from './pages/student/Scores';
 
 function App() {
@@ -18,10 +24,12 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" />} />
+          {/* Public Routes */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          
+
+          {/* Professor Routes */}
           <Route
             path="/professor/dashboard"
             element={
@@ -62,7 +70,8 @@ function App() {
               </ProtectedRoute>
             }
           />
-          
+
+          {/* Student Routes */}
           <Route
             path="/student/dashboard"
             element={
@@ -79,8 +88,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-
-          {/* ── ADD THIS ROUTE ── */}
           <Route
             path="/student/assignments/:assignmentId/view"
             element={
@@ -89,7 +96,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/student/scores"
             element={
@@ -98,8 +104,31 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* Unauthorized */}
+          <Route
+            path="/unauthorized"
+            element={
+              <div className="min-h-screen bg-black flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-xl text-[var(--color-accent-error)] mb-4">Unauthorized Access</p>
+                  <a href="/login" className="link">Back to Login</a>
+                </div>
+              </div>
+            }
+          />
 
-          <Route path="/unauthorized" element={<div className="min-h-screen flex items-center justify-center"><p className="text-xl text-red-600">Unauthorized Access</p></div>} />
+          {/* 404 */}
+          <Route
+            path="*"
+            element={
+              <div className="min-h-screen bg-black flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-xl mb-4">Page Not Found</p>
+                  <a href="/" className="link">Go Home</a>
+                </div>
+              </div>
+            }
+          />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

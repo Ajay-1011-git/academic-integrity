@@ -10,9 +10,9 @@ const { HfInference } = require('@huggingface/inference');
  * Final plagiarism score = MIN(student-plagiarism, AI-detection)
  */
 
-const EMBEDDING_MODEL   = 'sentence-transformers/all-MiniLM-L6-v2';
+const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
 const AI_DETECTOR_MODEL = 'Hello-SimpleAI/chatgpt-detector-roberta';
-const CONTENT_MODEL     = process.env.HUGGINGFACE_CONTENT_MODEL || 'HuggingFaceH4/zephyr-7b-beta';
+const CONTENT_MODEL = process.env.HUGGINGFACE_CONTENT_MODEL || 'HuggingFaceH4/zephyr-7b-beta';
 
 function getClient() {
   if (!process.env.HUGGINGFACE_API_TOKEN) throw new Error('HUGGINGFACE_API_TOKEN missing');
@@ -21,7 +21,7 @@ function getClient() {
 
 function cosineSimilarity(a, b) {
   if (!a || !b || a.length !== b.length) return 0;
-  const dot  = a.reduce((sum, v, i) => sum + v * b[i], 0);
+  const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
   const magA = Math.sqrt(a.reduce((sum, v) => sum + v * v, 0));
   const magB = Math.sqrt(b.reduce((sum, v) => sum + v * v, 0));
   return magA && magB ? dot / (magA * magB) : 0;
@@ -30,7 +30,7 @@ function cosineSimilarity(a, b) {
 async function getEmbedding(client, text) {
   const res = await client.featureExtraction({ model: EMBEDDING_MODEL, inputs: text.substring(0, 4000) });
   if (Array.isArray(res) && typeof res[0] === 'number') return res;
-  if (Array.isArray(res) && Array.isArray(res[0]))      return res[0];
+  if (Array.isArray(res) && Array.isArray(res[0])) return res[0];
   throw new Error('Unexpected embedding shape');
 }
 
@@ -50,7 +50,7 @@ async function checkStudentPlagiarism(text, others = []) {
         if (sim > maxSim) maxSim = sim;
         if (sim > 0.85) simCount++;
         console.log(`    vs another: ${(sim * 100).toFixed(1)}%`);
-      } catch {}
+      } catch { }
     }
     let score = others.length > 0
       ? Math.max(0, Math.min(100, Math.round((1 - maxSim) * 100)))
@@ -84,10 +84,10 @@ async function checkAIGeneration(text) {
     console.log(`    Raw: ${JSON.stringify(res)}`);
     if (!res || !Array.isArray(res) || res.length === 0) throw new Error('Empty');
     const human = res.find(r => ['human', 'label_0', 'real'].includes(r.label?.toLowerCase()));
-    const ai    = res.find(r => ['ai', 'chatgpt', 'label_1', 'fake'].includes(r.label?.toLowerCase()));
+    const ai = res.find(r => ['ai', 'chatgpt', 'label_1', 'fake'].includes(r.label?.toLowerCase()));
     let score = human ? Math.round(human.score * 100)
-              : ai    ? Math.round((1 - ai.score) * 100)
-              : Math.round(res.reduce((a, b) => a.score > b.score ? a : b).score * 100);
+      : ai ? Math.round((1 - ai.score) * 100)
+        : Math.round(res.reduce((a, b) => a.score > b.score ? a : b).score * 100);
     score = Math.max(0, Math.min(100, score));
     const aiLik = 100 - score;
     const verd = score >= 70 ? 'Likely human' : score >= 40 ? 'Possibly AI-assisted' : 'Likely AI-generated';
@@ -147,9 +147,23 @@ JSON:
 }</s>
 <|assistant|>`;
   try {
-    console.log(`[3/3] Content: ${CONTENT_MODEL}`);
-    const r = await client.textGeneration({ model: CONTENT_MODEL, inputs: prompt, parameters: { max_new_tokens: 700, temperature: 0.3, return_full_text: false, stop: ['</s>'] } });
-    const j = r.generated_text.match(/\{[\s\S]*\}/);
+    console.log(`[3/3] Content: ${CONTENT_MODEL} (via chatCompletion)`);
+
+    // Updated to use the modern chatCompletion API since textGeneration is
+    // deprecated for instruct models on HF free tier providers.
+    const r = await client.chatCompletion({
+      model: CONTENT_MODEL,
+      messages: [
+        { role: 'system', content: 'You are a strict evaluator. Return ONLY valid JSON parsing the criteria provided. Do not include markdown blocks.' },
+        { role: 'user', content: `Criteria:\n${clist}\n\nSubmission:\n"""\n${text.substring(0, 2500)}\n"""\n\nReturn JSON in this format:\n{\n  "criteriaScores": [{"name":"<name>","score":<0-100>,"reasoning":"<1 sentence>"}],\n  "overallQuality":<0-100>,\n  "strengths":["<point>"],\n  "improvements":["<point>"],\n  "detailedFeedback":"<2-3 sentences>"\n}` }
+      ],
+      max_tokens: 700,
+      temperature: 0.3
+    });
+
+    const outputText = r.choices?.[0]?.message?.content || "";
+    const j = outputText.match(/\{[\s\S]*\}/);
+
     if (j) {
       const p = JSON.parse(j[0]);
       const cs = crit.map((c, i) => {
@@ -160,7 +174,7 @@ JSON:
       console.log(`    Quality: ${oq}/100`);
       return { criteriaScores: cs, overallQuality: oq, strengths: p.strengths || [], improvements: p.improvements || [], detailedFeedback: p.detailedFeedback || 'Done.' };
     }
-    throw new Error('No JSON');
+    throw new Error('No JSON output from model');
   } catch (e) {
     console.error(`[3/3] Error: ${e.message}`);
     return heuristicCont(text, crit);

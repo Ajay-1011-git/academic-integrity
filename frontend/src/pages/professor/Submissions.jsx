@@ -1,122 +1,181 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { professorAPI } from '../../services/api';
+import Sidebar from '../../components/layout/Sidebar';
+import LoadingDots from '../../components/common/LoadingDots';
 
-export default function SubmissionsList() {
-  const [submissions, setSubmissions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+export default function Submissions() {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
+  const [submissions, setSubmissions] = useState([]);
+  const [assignment, setAssignment] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchSubmissions();
+    fetchData();
   }, [assignmentId]);
 
-  async function fetchSubmissions() {
+  async function fetchData() {
     try {
-      const response = await professorAPI.getSubmissions(assignmentId);
-      setSubmissions(response.data.submissions || []);
+      const [subRes, assignRes] = await Promise.all([
+        professorAPI.getSubmissions(assignmentId),
+        professorAPI.getAssignmentById(assignmentId),
+      ]);
+      setSubmissions(subRes.data.submissions);
+      setAssignment(assignRes.data.assignment);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to fetch submissions');
+      setError('Failed to load submissions');
     } finally {
       setLoading(false);
     }
   }
 
-  function handleEvaluate(submission) {
-    // Pass the full submission object via navigation state
-    navigate(`/professor/evaluate/${submission.id}`, {
-      state: { submission }
-    });
-  }
+  function handleExportCSV() {
+    const csvContent = [
+      ['#', 'Student', 'Email', 'Submitted At', 'Score', 'Status'].join(','),
+      ...submissions.map((s, i) => [
+        String(i + 1).padStart(3, '0'),
+        s.studentName,
+        s.studentEmail,
+        new Date(s.submittedAt).toLocaleString(),
+        s.score ?? '-',
+        s.status,
+      ].join(',')),
+    ].join('\n');
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <p className="text-gray-500">Loading submissions...</p>
-      </div>
-    );
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${assignment?.title || 'submissions'}_export.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-4">
-          <button
-            onClick={() => navigate('/professor/dashboard')}
-            className="text-indigo-600 hover:text-indigo-800"
+    <div className="min-h-screen bg-black flex">
+      <Sidebar role="professor" />
+
+      <main className="flex-1 p-8 overflow-auto">
+        <div className="max-w-5xl mx-auto">
+          {/* Header */}
+          <div className="mb-2 page-enter">
+            <button
+              onClick={() => navigate('/professor/dashboard')}
+              className="text-sm text-[var(--color-text-secondary)] hover:text-white transition-colors flex items-center gap-1 mb-4"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              Back to Dashboard
+            </button>
+
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {assignment?.title || 'Assignment'}
+            </h1>
+            <p className="text-sm text-[var(--color-text-secondary)] mt-1">
+              Due: {assignment?.dueDate && new Date(assignment.dueDate).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+              })}
+            </p>
+          </div>
+
+          {/* Submissions header */}
+          <div className="flex justify-between items-center mb-6 page-enter" style={{ animationDelay: '100ms' }}>
+            <h2 className="text-sm text-[var(--color-text-secondary)] uppercase tracking-wider">
+              Submissions ({submissions.length})
+            </h2>
+            <button
+              onClick={handleExportCSV}
+              className="btn-outline text-sm py-2 px-4"
+              disabled={submissions.length === 0}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mr-2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export CSV
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div
+            className="mb-6 p-4 rounded-lg border"
+            style={{
+              borderColor: 'var(--color-accent-error)',
+              background: 'rgba(255, 59, 48, 0.05)'
+            }}
           >
-            ← Back to Dashboard
-          </button>
-        </div>
+            <p className="text-sm" style={{ color: 'var(--color-accent-error)' }}>
+              {error}
+            </p>
+          </div>
+        )}
 
-        <div className="bg-white rounded-lg shadow px-8 py-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Final Submissions</h2>
-
-          {error && (
-            <div className="rounded-md bg-red-50 p-4 mb-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
-
-          {submissions.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-500">No final submissions yet</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead>
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Student
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      File
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Submitted
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {submissions.map((submission) => (
-                    <tr key={submission.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {submission.studentName}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {submission.studentEmail}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {submission.fileName}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(submission.submittedAt).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <button
-                          onClick={() => handleEvaluate(submission)}
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                        >
-                          Evaluate
-                        </button>
-                      </td>
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <LoadingDots text="Loading submissions..." />
+          </div>
+        ) : submissions.length === 0 ? (
+          <div className="card text-center py-16 page-enter">
+            <p className="text-[var(--color-text-secondary)]">
+              No submissions yet
+            </p>
+          </div>
+        ) : (
+          <div className="page-enter max-w-5xl mx-auto" style={{ animationDelay: '150ms' }}>
+            <div className="card">
+              <div className="overflow-x-auto">
+                <table className="data-table w-full text-left">
+                  <thead>
+                    <tr>
+                      <th className="w-16">#</th>
+                      <th>Student</th>
+                      <th className="w-24">Score</th>
+                      <th className="w-32">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {submissions.map((submission, index) => (
+                      <tr key={submission.id} className="border-b border-[var(--color-border)] last:border-0">
+                        <td className="text-[var(--color-text-tertiary)] py-4">
+                          {String(index + 1).padStart(3, '0')}
+                        </td>
+                        <td className="py-4">
+                          <p className="font-medium">{submission.studentName}</p>
+                          <p className="text-xs text-[var(--color-text-tertiary)]">{submission.studentEmail}</p>
+                        </td>
+                        <td className="py-4">
+                          {submission.score ? (
+                            <span className="text-lg font-semibold">{submission.score}</span>
+                          ) : (
+                            <span className="text-[var(--color-text-tertiary)]">—</span>
+                          )}
+                        </td>
+                        <td className="py-4">
+                          <button
+                            onClick={() => navigate(`/professor/evaluate/${submission.id}`, {
+                              state: { submission }
+                            })}
+                            className="btn-outline text-xs py-1.5 px-3"
+                          >
+                            {submission.score ? 'View' : 'Evaluate'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

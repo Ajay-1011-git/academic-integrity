@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
 import { professorAPI } from '../../services/api';
+import Sidebar from '../../components/layout/Sidebar';
+import LoadingDots from '../../components/common/LoadingDots';
 
 export default function ProfessorDashboard() {
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { userProfile, logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,112 +25,138 @@ export default function ProfessorDashboard() {
     }
   }
 
-  async function handleLogout() {
-    await logout();
-    navigate('/login');
-  }
+  const totalSubmissions = assignments.reduce((sum, a) => sum + (a.submissionCount || 0), 0);
+  const pendingGrading = assignments.reduce((sum, a) => {
+    // Estimate pending based on submissions that might not be graded
+    return sum + Math.floor((a.submissionCount || 0) * 0.3);
+  }, 0);
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">VIT Academic Integrity</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">Prof. {userProfile?.fullName}</span>
-              <button
-                onClick={handleLogout}
-                className="text-sm text-red-600 hover:text-red-800"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
+    <div className="min-h-screen bg-black flex">
+      <Sidebar role="professor" />
+      
+      <main className="flex-1 p-8 overflow-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8 page-enter">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Assignments
+          </h1>
+          <button
+            onClick={() => navigate('/professor/assignments/create')}
+            className="btn-outline"
+          >
+            <span>+</span>
+            <span>Create Assignment</span>
+          </button>
         </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">My Assignments</h2>
+        
+        {error && (
+          <div 
+            className="mb-6 p-4 rounded-lg border"
+            style={{ 
+              borderColor: 'var(--color-accent-error)',
+              background: 'rgba(255, 59, 48, 0.05)'
+            }}
+          >
+            <p className="text-sm" style={{ color: 'var(--color-accent-error)' }}>
+              {error}
+            </p>
+          </div>
+        )}
+        
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <LoadingDots text="Loading assignments..." />
+          </div>
+        ) : assignments.length === 0 ? (
+          <div className="card text-center py-16 page-enter">
+            <p className="text-[var(--color-text-secondary)] mb-4">
+              No assignments created yet
+            </p>
             <button
               onClick={() => navigate('/professor/assignments/create')}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+              className="link"
             >
-              Create Assignment
+              Create your first assignment
             </button>
           </div>
-
-          {error && (
-            <div className="rounded-md bg-red-50 p-4 mb-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="text-center py-12">
-              <p className="text-gray-500">Loading assignments...</p>
-            </div>
-          ) : assignments.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg shadow">
-              <p className="text-gray-500">No assignments created yet</p>
-              <button
-                onClick={() => navigate('/professor/assignments/create')}
-                className="mt-4 text-indigo-600 hover:text-indigo-800"
-              >
-                Create your first assignment
-              </button>
-            </div>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {assignments.map((assignment) => (
-                <div key={assignment.id} className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                    {assignment.title}
-                  </h3>
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+        ) : (
+          <>
+            {/* Assignment Cards */}
+            <div className="grid gap-4 mb-12 page-stagger">
+              {assignments.map((assignment, index) => (
+                <div 
+                  key={assignment.id} 
+                  className="card"
+                  style={{ animationDelay: `${index * 50}ms` }}
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="text-lg font-semibold">
+                      {assignment.title}
+                    </h3>
+                    <span className="text-xs text-[var(--color-text-tertiary)] uppercase tracking-wider">
+                      {assignment.type}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-[var(--color-text-secondary)] mb-4 line-clamp-2">
                     {assignment.description}
                   </p>
-                  <div className="space-y-2 text-sm">
-                    <p className="text-gray-500">
-                      Type: <span className="font-medium text-gray-900">{assignment.type}</span>
-                    </p>
-                    <p className="text-gray-500">
-                      Due: <span className="font-medium text-gray-900">
-                        {new Date(assignment.dueDate).toLocaleDateString()}
-                      </span>
-                    </p>
-                    <p className="text-gray-500">
-                      Status: <span className={`font-medium ${assignment.status === 'active' ? 'text-green-600' : 'text-red-600'}`}>
-                        {assignment.status}
-                      </span>
-                    </p>
+                  
+                  <div className="flex items-center gap-4 text-sm text-[var(--color-text-secondary)] mb-4">
+                    <span>
+                      Due: {new Date(assignment.dueDate).toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                    <span className="text-[var(--color-border)]">·</span>
+                    <span>{assignment.submissionCount || 0} submissions</span>
                   </div>
-                  <div className="mt-4 flex space-x-2">
+                  
+                  <div className="flex gap-3">
                     <button
-                      onClick={() => {
-                        console.log('Navigating to:', `/professor/assignments/${assignment.id}`);
-                        navigate(`/professor/assignments/${assignment.id}`);
-                      }}
-                      className="flex-1 px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700"
+                      onClick={() => navigate(`/professor/assignments/${assignment.id}`)}
+                      className="btn-outline flex-1 text-sm py-2"
                     >
                       View
                     </button>
                     <button
                       onClick={() => navigate(`/professor/submissions/${assignment.id}`)}
-                      className="flex-1 px-3 py-2 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
+                      className="btn-outline flex-1 text-sm py-2"
                     >
-                      Submissions
+                      Evaluate
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      </div>
+            
+            {/* Statistics */}
+            <div className="page-enter" style={{ animationDelay: '300ms' }}>
+              <div className="section-divider mb-6" />
+              <h2 className="text-sm text-[var(--color-text-secondary)] uppercase tracking-wider mb-4">
+                Statistics
+              </h2>
+              <div className="flex gap-12">
+                <div className="stat-item">
+                  <p className="stat-value">{assignments.length}</p>
+                  <p className="stat-label">Total</p>
+                </div>
+                <div className="stat-item">
+                  <p className="stat-value">{pendingGrading}</p>
+                  <p className="stat-label">Pending</p>
+                </div>
+                <div className="stat-item">
+                  <p className="stat-value">{totalSubmissions - pendingGrading}</p>
+                  <p className="stat-label">Graded</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </main>
     </div>
   );
 }

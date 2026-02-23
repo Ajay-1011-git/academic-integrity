@@ -1,122 +1,127 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { studentAPI } from '../../services/api';
+import Sidebar from '../../components/layout/Sidebar';
+import LoadingDots from '../../components/common/LoadingDots';
 
 export default function Scores() {
-  const [scores, setScores] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const navigate = useNavigate();
+    const [gradedAssignments, setGradedAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchScores();
-  }, []);
+    useEffect(() => {
+        fetchScores();
+    }, []);
 
-  async function fetchScores() {
-    try {
-      const response = await studentAPI.getScores();
-      setScores(response.data.scores);
-    } catch (err) {
-      setError('Failed to load scores');
-    } finally {
-      setLoading(false);
+    async function fetchScores() {
+        try {
+            // The getAssignments endpoint automatically joins the student's
+            // submissions and attaches `.score` if it has been graded.
+            const response = await studentAPI.getAssignments();
+            const allAssignments = response.data.assignments;
+
+            // Filter to only show assignments that actually have a score
+            const graded = allAssignments.filter(a => a.score !== undefined && a.score !== null);
+            setGradedAssignments(graded);
+        } catch (err) {
+            setError('Failed to load scores');
+        } finally {
+            setLoading(false);
+        }
     }
-  }
 
-  return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-gray-900">My Scores</h1>
-            </div>
-            <div className="flex items-center">
-              <button
-                onClick={() => navigate('/student/dashboard')}
-                className="text-sm text-indigo-600 hover:text-indigo-800"
-              >
-                Back to Dashboard
-              </button>
-            </div>
-          </div>
+    return (
+        <div className="min-h-screen bg-black flex">
+            <Sidebar role="student" />
+
+            <main className="flex-1 p-8 overflow-auto">
+                {/* Header */}
+                <div className="flex justify-between items-center mb-8 page-enter">
+                    <h1 className="text-2xl font-semibold tracking-tight">
+                        My Scores
+                    </h1>
+                </div>
+
+                {error && (
+                    <div
+                        className="mb-6 p-4 rounded-lg border"
+                        style={{
+                            borderColor: 'var(--color-accent-error)',
+                            background: 'rgba(255, 59, 48, 0.05)'
+                        }}
+                    >
+                        <p className="text-sm" style={{ color: 'var(--color-accent-error)' }}>
+                            {error}
+                        </p>
+                    </div>
+                )}
+
+                {loading ? (
+                    <div className="flex justify-center py-20">
+                        <LoadingDots text="Loading scores..." />
+                    </div>
+                ) : gradedAssignments.length === 0 ? (
+                    <div className="card text-center py-16 page-enter">
+                        <p className="text-[var(--color-text-secondary)]">
+                            No graded assignments yet
+                        </p>
+                    </div>
+                ) : (
+                    <div className="grid gap-4 mb-12 page-stagger">
+                        {gradedAssignments.map((assignment, index) => (
+                            <div
+                                key={assignment.id}
+                                className="card"
+                                style={{ animationDelay: `${index * 50}ms` }}
+                            >
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="status-dot status-submitted" />
+                                        <h3 className="text-lg font-semibold">
+                                            {assignment.title}
+                                        </h3>
+                                    </div>
+                                    <span className="text-xs text-[var(--color-text-tertiary)] uppercase tracking-wider">
+                                        {assignment.type}
+                                    </span>
+                                </div>
+
+                                <p className="text-sm text-[var(--color-text-secondary)] mb-4 line-clamp-2">
+                                    {assignment.description}
+                                </p>
+
+                                <div className="flex flex-col sm:flex-row items-center justify-between border-t border-[var(--color-border)] pt-4 mt-4">
+                                    <div className="flex items-center gap-4 text-sm text-[var(--color-text-secondary)]">
+                                        <span>
+                                            Evaluated for: {assignment.professorName || 'Professor'}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 mt-4 sm:mt-0">
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-xs text-[var(--color-text-tertiary)] uppercase tracking-wider mb-1">
+                                                Final Score
+                                            </span>
+                                            <div className="flex items-baseline gap-1">
+                                                <span className="text-3xl font-light text-white">{assignment.score}</span>
+                                                <span className="text-sm text-[var(--color-text-secondary)]">/ 10</span>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => navigate(`/student/assignments/${assignment.id}/view`)}
+                                            className="btn-outline text-sm py-2 px-6 ml-4"
+                                        >
+                                            View Details
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </main>
         </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          {error && (
-            <div className="rounded-md bg-red-50 p-4 mb-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="text-center py-12">
-              <p className="text-gray-500">Loading scores...</p>
-            </div>
-          ) : scores.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg shadow">
-              <p className="text-gray-500">No scores available yet</p>
-            </div>
-          ) : (
-            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Assignment
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Plagiarism Score
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Criteria Score
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Final Score
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {scores.map((score) => (
-                    <tr key={score.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        Assignment
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {score.plagiarismScore}%
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {score.totalCriteriaPoints}/{score.totalCriteriaMaxPoints}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-lg font-bold text-indigo-600">
-                          {score.finalScore}/10
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {score.overridden ? (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                            Overridden
-                          </span>
-                        ) : (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                            Graded
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+    );
 }

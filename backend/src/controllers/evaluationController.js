@@ -39,11 +39,14 @@ async function evaluateSubmission(req, res) {
       { field: 'submissionId', operator: '==', value: submissionId }
     ]);
 
+    let score;
+    let isUpdate = false;
+
     if (existingScores.length > 0) {
-      return res.status(409).json({
-        error: 'Submission already evaluated',
-        score: existingScores[0]
-      });
+      isUpdate = true;
+      score = existingScores[0];
+      // Instead of failing with 409, we will just update the existing score.
+      // The logic below will build the completeScoreData, and then we will update it.
     }
 
     const scoreData = {
@@ -83,19 +86,39 @@ async function evaluateSubmission(req, res) {
       updatedAt: new Date().toISOString()
     };
 
-    const score = await createDocument(collections.SCORES, completeScoreData);
+    if (isUpdate) {
+      completeScoreData.updatedAt = new Date().toISOString();
+      await updateDocument(collections.SCORES, score.id, completeScoreData);
 
-    await logAudit(
-      professorId,
-      req.user.name || req.user.email,
-      'evaluate',
-      'score',
-      score.id,
-      { created: completeScoreData }
-    );
+      await logAudit(
+        professorId,
+        req.user.name || req.user.email,
+        'update',
+        'score',
+        score.id,
+        { updated: completeScoreData }
+      );
+    } else {
+      score = await createDocument(collections.SCORES, completeScoreData);
 
-    return res.status(201).json({
-      message: 'Submission evaluated successfully',
+      await logAudit(
+        professorId,
+        req.user.name || req.user.email,
+        'evaluate',
+        'score',
+        score.id,
+        { created: completeScoreData }
+      );
+    }
+
+    // Update the submission document to reflect the score so the UI knows it's evaluated
+    await updateDocument(collections.SUBMISSIONS, submissionId, {
+      score: calculation.finalScore,
+      evaluatedAt: new Date().toISOString()
+    });
+
+    return res.status(isUpdate ? 200 : 201).json({
+      message: isUpdate ? 'Submission score updated successfully' : 'Submission evaluated successfully',
       score
     });
 

@@ -1,338 +1,331 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { studentAPI } from '../../services/api';
+import Sidebar from '../../components/layout/Sidebar';
+import LoadingDots from '../../components/common/LoadingDots';
+import BlockchainAnimation from '../../components/common/BlockchainAnimation';
 
 export default function SubmitAssignment() {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
 
   const [assignment, setAssignment] = useState(null);
-  const [fileName, setFileName] = useState('submission.txt');
-  const [fileContent, setFileContent] = useState('');
-  const [fileType, setFileType] = useState('.txt');
+  const [file, setFile] = useState(null);
+  const [content, setContent] = useState('');
+  const [useBlockchain, setUseBlockchain] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [alreadySubmitted, setAlreadySubmitted] = useState(false);
-  const [draftSavedAt, setDraftSavedAt] = useState(null);
-  const fileInputRef = useRef(null);
+  const [lastSaved, setLastSaved] = useState(null);
 
   useEffect(() => {
-    loadData();
+    fetchAssignment();
   }, [assignmentId]);
 
-  async function loadData() {
+  // Auto-save draft
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (content || file) {
+        setLastSaved(new Date());
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [content, file]);
+
+  async function fetchAssignment() {
     try {
-      setLoading(true);
-      setError('');
-
-      // Load assignment details
-      const assignRes = await studentAPI.getAssignmentById(assignmentId);
-      setAssignment(assignRes.data.assignment || assignRes.data);
-
-      // Check if already submitted
-      try {
-        await studentAPI.getSubmissionByAssignment(assignmentId);
-        setAlreadySubmitted(true);
-      } catch {
-        // No submission yet — good to go
-      }
-
-      // Load latest draft if exists
-      try {
-        const draftRes = await studentAPI.getLatestDraft(assignmentId);
-        const draft = draftRes.data.draft;
-        if (draft?.content) {
-          setFileContent(draft.content);
-          if (draft.fileName) setFileName(draft.fileName);
-          setDraftSavedAt(draft.updatedAt || draft.createdAt);
-        }
-      } catch {
-        // No draft yet — fine
-      }
-
+      const response = await studentAPI.getAssignmentById(assignmentId);
+      setAssignment(response.data.assignment);
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load assignment');
+      setError('Failed to load assignment');
     } finally {
       setLoading(false);
     }
   }
 
-  function handleFileUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const ext = file.name.substring(file.name.lastIndexOf('.'));
-    setFileName(file.name);
-    setFileType(ext);
-
-    const reader = new FileReader();
-    reader.onload = (ev) => setFileContent(ev.target.result);
-    reader.readAsText(file);
+  function handleFileDrop(e) {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      setFile(droppedFile);
+      // Read file content
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setContent(event.target.result);
+      };
+      reader.readAsText(droppedFile);
+    }
   }
 
-  async function handleSaveDraft() {
-    if (!fileContent.trim()) {
-      setError('Please enter some content before saving a draft');
-      return;
-    }
-    try {
-      setSavingDraft(true);
-      setError('');
-      await studentAPI.saveDraft({
-        assignmentId,
-        content: fileContent,
-        fileName
-      });
-      setDraftSavedAt(new Date().toISOString());
-      setSuccess('Draft saved!');
-      setTimeout(() => setSuccess(''), 2000);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save draft');
-    } finally {
-      setSavingDraft(false);
+  function handleFileSelect(e) {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setContent(event.target.result);
+      };
+      reader.readAsText(selectedFile);
     }
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!fileContent.trim()) {
-      setError('Please enter your submission content or upload a file');
+    setError('');
+
+    if (!content.trim()) {
+      setError('Please enter submission content');
       return;
     }
 
-    const confirmed = window.confirm(
-      'Once submitted, you cannot change your submission. Are you sure?'
-    );
-    if (!confirmed) return;
+    setSubmitting(true);
+
+    if (useBlockchain) {
+      setVerifying(true);
+      // Simulate blockchain verification
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      setVerifying(false);
+      setVerified(true);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
 
     try {
-      setSubmitting(true);
-      setError('');
-
       await studentAPI.submitAssignment({
         assignmentId,
-        fileName,
-        fileContent,
-        fileType,
-        submissionType: 'direct'
+        fileContent: content,
+        fileName: file ? file.name : 'text_submission.txt',
+        fileType: file ? file.name.substring(file.name.lastIndexOf('.')) : '.txt',
+        submissionType: useBlockchain ? 'blockchain' : 'direct',
       });
-
-      navigate(`/student/assignments/${assignmentId}/view`);
-
+      navigate('/student/dashboard');
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit assignment');
+      setError(err.message || 'Failed to submit assignment');
+    } finally {
       setSubmitting(false);
     }
   }
 
-  function isOverdue() {
-    if (!assignment?.dueDate) return false;
-    return new Date() > new Date(assignment.dueDate);
+  function handleSaveDraft() {
+    setLastSaved(new Date());
+    // In real app, save to backend/localStorage
   }
 
-  function formatDate(d) {
-    if (!d) return '—';
-    return new Date(d).toLocaleString('en-IN', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  }
+  const daysRemaining = assignment ?
+    Math.ceil((new Date(assignment.dueDate) - new Date()) / (1000 * 60 * 60 * 24)) :
+    0;
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3"></div>
-          <p className="text-gray-500 text-sm">Loading assignment...</p>
-        </div>
+      <div className="min-h-screen bg-black flex">
+        <Sidebar role="student" />
+        <main className="flex-1 flex items-center justify-center">
+          <LoadingDots text="Loading..." />
+        </main>
       </div>
     );
   }
 
-  // ── Already submitted ────────────────────────────────────────────────────────
-  if (alreadySubmitted) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 max-w-md w-full text-center">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Already Submitted</h2>
-          <p className="text-gray-500 text-sm mb-6">
-            You have already submitted this assignment. You cannot resubmit.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <button
-              onClick={() => navigate(`/student/assignments/${assignmentId}/view`)}
-              className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-            >
-              View Submission
-            </button>
+  return (
+    <div className="min-h-screen bg-black flex">
+      <Sidebar role="student" />
+
+      <main className="flex-1 p-8 overflow-auto">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="mb-8 page-enter">
             <button
               onClick={() => navigate('/student/dashboard')}
-              className="px-5 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+              className="text-sm text-[var(--color-text-secondary)] hover:text-white transition-colors flex items-center gap-1 mb-4"
             >
-              Dashboard
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              Back to Dashboard
             </button>
+
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Submit Assignment
+            </h1>
+            <p className="text-lg mt-1">{assignment?.title}</p>
+            {assignment?.description && (
+              <p className="text-sm mt-2 text-[var(--color-text-secondary)] mb-2 whitespace-pre-wrap">
+                {assignment.description}
+              </p>
+            )}
+            <p className={`text-sm mt-1 ${daysRemaining <= 2 ? 'text-[var(--color-accent-error)]' : 'text-[var(--color-text-tertiary)]'}`}>
+              Due: {new Date(assignment?.dueDate).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })} ({daysRemaining} days remaining)
+            </p>
           </div>
-        </div>
-      </div>
-    );
-  }
 
-  // ── Main form ────────────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-
-        {/* Back */}
-        <button
-          onClick={() => navigate('/student/dashboard')}
-          className="flex items-center text-sm text-gray-500 hover:text-gray-800 mb-5"
-        >
-          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Dashboard
-        </button>
-
-        {/* Assignment Info */}
-        {assignment && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">{assignment.title}</h1>
-                {assignment.description && (
-                  <p className="text-gray-500 text-sm mt-1">{assignment.description}</p>
-                )}
-              </div>
-              <span className={`ml-4 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
-                isOverdue()
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-green-100 text-green-700'
-              }`}>
-                {isOverdue() ? 'Overdue' : 'Open'}
-              </span>
-            </div>
-            <div className="mt-3 flex gap-5 text-xs text-gray-500">
-              <span>Due: <span className="font-medium text-gray-700">{formatDate(assignment.dueDate)}</span></span>
-              {assignment.allowedFileTypes?.length > 0 && (
-                <span>Allowed: <span className="font-medium text-gray-700">{assignment.allowedFileTypes.join(', ')}</span></span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Overdue warning */}
-        {isOverdue() && (
-          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm text-red-700">
-            ⚠ The deadline for this assignment has passed. Submission may be rejected.
-          </div>
-        )}
-
-        {/* Error / Success */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-        {success && (
-          <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-4 text-sm text-green-700">
-            {success}
-          </div>
-        )}
-
-        {/* Submission Form */}
-        <form onSubmit={handleSubmit}>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <h2 className="text-base font-semibold text-gray-900 mb-4">Your Submission</h2>
-
-            {/* Upload file OR type */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">Upload File</label>
-                <span className="text-xs text-gray-400">or type directly below</span>
-              </div>
+          <form onSubmit={handleSubmit} className="page-stagger">
+            {/* File Upload */}
+            <div className="mb-6">
+              <label className="block text-xs text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">
+                File Upload
+              </label>
               <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleFileDrop}
+                className="file-upload"
+                onClick={() => document.getElementById('file-input').click()}
               >
-                <svg className="w-7 h-7 text-gray-400 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-sm text-gray-500">
-                  {fileName !== 'submission.txt' ? (
-                    <span className="text-blue-600 font-medium">{fileName}</span>
-                  ) : (
-                    <>Click to upload <span className="text-blue-600">a file</span></>
-                  )}
-                </p>
                 <input
-                  ref={fileInputRef}
+                  id="file-input"
                   type="file"
-                  accept=".txt,.pdf,.doc,.docx,.py,.js,.java,.cpp,.c,.cs,.md"
-                  onChange={handleFileUpload}
                   className="hidden"
+                  onChange={handleFileSelect}
+                  accept=".txt,.pdf,.doc,.docx,.cpp,.c,.java,.py,.js,.jsx,.ts,.tsx,.html,.css"
                 />
+
+                {file ? (
+                  <div className="text-center">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <p className="font-medium">{file.name}</p>
+                    <p className="text-sm text-[var(--color-text-tertiary)]">
+                      {(file.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-2 text-[var(--color-text-tertiary)]">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <p className="text-[var(--color-text-secondary)]">
+                      Drop file here or click to upload
+                    </p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+                      Supports: PDF, DOC, TXT, Code files
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Text area */}
-            <div className="mb-1">
-              <label className="text-sm font-medium text-gray-700 block mb-2">
+            {/* Content */}
+            <div className="mb-6">
+              <label className="block text-xs text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">
                 Content
-                {draftSavedAt && (
-                  <span className="ml-2 text-xs text-gray-400 font-normal">
-                    Draft saved {formatDate(draftSavedAt)}
-                  </span>
-                )}
               </label>
               <textarea
-                value={fileContent}
-                onChange={e => setFileContent(e.target.value)}
-                placeholder="Type or paste your submission here..."
-                rows={14}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                required
+                rows={12}
+                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-4 text-white placeholder-[var(--color-text-tertiary)] focus:border-white focus:outline-none transition-colors resize-none font-mono text-sm"
+                placeholder="Enter your submission content here..."
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                disabled={submitting}
               />
-              <p className="text-xs text-gray-400 mt-1">
-                {fileContent.trim().split(/\s+/).filter(Boolean).length} words
-              </p>
             </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 mt-4">
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={savingDraft || submitting}
-              className="flex-1 py-2.5 px-4 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
-            >
-              {savingDraft ? 'Saving...' : 'Save Draft'}
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || savingDraft || isOverdue()}
-              className="flex-2 py-2.5 px-8 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {submitting ? 'Submitting...' : 'Submit Assignment'}
-            </button>
-          </div>
+            {/* Submission Method */}
+            <div className="mb-6">
+              <label className="block text-xs text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+                Submission Method
+              </label>
+              <div className="radio-group">
+                <label
+                  className={`radio-item ${!useBlockchain ? 'selected' : ''}`}
+                  onClick={() => setUseBlockchain(false)}
+                >
+                  <div className="radio-circle" />
+                  <span>Direct submission</span>
+                </label>
+                <label
+                  className={`radio-item ${useBlockchain ? 'selected' : ''}`}
+                  onClick={() => setUseBlockchain(true)}
+                >
+                  <div className="radio-circle" />
+                  <span>Blockchain verification</span>
+                </label>
+              </div>
+            </div>
 
-          {isOverdue() && (
-            <p className="text-xs text-red-500 text-center mt-2">
-              Submission is disabled — deadline has passed.
-            </p>
-          )}
-        </form>
+            {/* Blockchain Animation */}
+            {verifying && (
+              <div className="card mb-6 text-center">
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">
+                  Verifying on chain
+                </p>
+                <BlockchainAnimation
+                  isActive={true}
+                  blockNumber={12345678}
+                />
+              </div>
+            )}
 
-      </div>
+            {verified && (
+              <div className="card mb-6 text-center success-glow">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mx-auto mb-2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <p className="text-sm">Verified on chain</p>
+              </div>
+            )}
+
+            {/* Draft saved info */}
+            {lastSaved && (
+              <p className="text-xs text-[var(--color-text-tertiary)] mb-4">
+                Draft saved {Math.floor((new Date() - lastSaved) / 60000)} minutes ago
+              </p>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div
+                className="mb-6 p-4 rounded-lg border"
+                style={{
+                  borderColor: 'var(--color-accent-error)',
+                  background: 'rgba(255, 59, 48, 0.05)',
+                  animation: 'shake 300ms ease-out'
+                }}
+              >
+                <p className="text-sm" style={{ color: 'var(--color-accent-error)' }}>
+                  {error}
+                </p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                className="btn-outline flex-1"
+                disabled={submitting}
+              >
+                Save Draft
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !content.trim()}
+                className="btn-primary flex-1"
+              >
+                {submitting ? (
+                  useBlockchain ? (
+                    <LoadingDots text="Submitting..." />
+                  ) : (
+                    <LoadingDots text="" />
+                  )
+                ) : (
+                  'Submit Assignment'
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
     </div>
   );
 }

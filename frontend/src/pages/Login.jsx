@@ -1,97 +1,152 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Logo from '../components/common/Logo';
+import LoadingDots from '../components/common/LoadingDots';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
-async function handleSubmit(e) {
-  e.preventDefault();
-  setError('');
-  setLoading(true);
 
-  try {
-    const profile = await login(email, password);
-    
-    if (profile.role === 'professor') {
-      navigate('/professor/dashboard');
-    } else if (profile.role === 'student') {
-      navigate('/student/dashboard');
-    } else {
-      navigate('/');
+  useEffect(() => {
+    // Clear error when user types
+    if (error) setError('');
+  }, [email, password]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const profile = await login(email, password);
+      setShowSuccess(true);
+      
+      // Delay navigation for success animation
+      setTimeout(() => {
+        if (profile.role === 'professor') {
+          navigate('/professor/dashboard');
+        } else {
+          navigate('/student/dashboard');
+        }
+      }, 600);
+    } catch (err) {
+      console.error('Login error:', err);
+      
+      if (err.message?.includes('Invalid') || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('Invalid credentials');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please try again later.');
+      } else {
+        setError(err.message || 'Authentication failed');
+      }
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error('Login error:', err);
-    
-    if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-      setError('Invalid email or password');
-    } else if (err.code === 'auth/too-many-requests') {
-      setError('Too many failed attempts. Please try again later.');
-    } else {
-      setError(err.message || 'Failed to login');
-    }
-  } finally {
-    setLoading(false);
   }
-}
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            VIT Academic Integrity
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Sign in to your account
-          </p>
+    <div className="min-h-screen bg-black flex items-center justify-center px-4">
+      {/* Success overlay animation */}
+      {showSuccess && (
+        <div 
+          className="fixed inset-0 flex items-center justify-center pointer-events-none z-50"
+          style={{
+            background: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%)',
+            animation: 'expandCircle 600ms ease-out forwards'
+          }}
+        />
+      )}
+      
+      <div 
+        className="w-full max-w-md page-enter"
+        style={{ animationDelay: '100ms' }}
+      >
+        {/* Logo */}
+        <div className="flex justify-center mb-12">
+          <Logo size="lg" animated={true} />
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Email field */}
+          <div 
+            className="page-enter"
+            style={{ animationDelay: '200ms' }}
+          >
+            <input
+              type="email"
+              required
+              className={`input-underline ${error ? 'error' : ''}`}
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          
+          {/* Password field */}
+          <div 
+            className="page-enter"
+            style={{ animationDelay: '300ms' }}
+          >
+            <input
+              type="password"
+              required
+              className={`input-underline ${error ? 'error' : ''}`}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          
+          {/* Error message */}
           {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{error}</p>
+            <div 
+              className="text-center text-sm"
+              style={{ 
+                color: 'var(--color-accent-error)',
+                animation: 'shake 300ms ease-out'
+              }}
+            >
+              {error}
             </div>
           )}
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <input
-                type="email"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="VIT Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
+          
+          {/* Submit button */}
+          <div 
+            className="page-enter"
+            style={{ animationDelay: '400ms' }}
+          >
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+              className="btn-outline w-full"
             >
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? (
+                <LoadingDots text="" />
+              ) : (
+                'Sign In'
+              )}
             </button>
           </div>
-
-          <div className="text-center">
-            <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
-              Don't have an account? Sign up
+          
+          {/* Sign up link */}
+          <div 
+            className="text-center page-enter"
+            style={{ animationDelay: '500ms' }}
+          >
+            <Link 
+              to="/signup" 
+              className="link text-sm"
+            >
+              Create an account
             </Link>
           </div>
         </form>

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { auth } from '../config/firebase';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://127.0.0.1:5000';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -33,11 +33,11 @@ export const professorAPI = {
   updateAssignment: (id, data) => api.put(`/api/professor/assignments/${id}`, data),
   deleteAssignment: (id) => api.delete(`/api/professor/assignments/${id}`),
   closeAssignment: (id) => api.patch(`/api/professor/assignments/${id}/close`),
-  
+
   createRubric: (data) => api.post('/api/professor/rubrics', data),
   getRubricByAssignment: (assignmentId) => api.get(`/api/professor/rubrics/assignment/${assignmentId}`),
   updateRubric: (id, data) => api.put(`/api/professor/rubrics/${id}`, data),
-  
+
   getSubmissions: (assignmentId) => api.get(`/api/professor/submissions/assignment/${assignmentId}`),
   evaluateSubmission: (data) => api.post('/api/professor/evaluate', data),
   overrideScore: (scoreId, data) => api.patch(`/api/professor/scores/${scoreId}/override`, data),
@@ -56,17 +56,17 @@ export const professorAPI = {
 export const studentAPI = {
   getAssignments: () => api.get('/api/student/assignments'),
   getAssignmentById: (id) => api.get(`/api/student/assignments/${id}`),
-  
+
   submitAssignment: (data) => api.post('/api/student/submit', data),
   getSubmissions: () => api.get('/api/student/submissions'),
   getSubmissionById: (id) => api.get(`/api/student/submissions/${id}`),
   getSubmissionByAssignment: (assignmentId) => api.get(`/api/student/submissions/assignment/${assignmentId}`),
-  
+
   saveDraft: (data) => api.post('/api/student/drafts', data),
   getAllDrafts: () => api.get('/api/student/drafts'),
   getDraftsByAssignment: (assignmentId) => api.get(`/api/student/drafts/assignment/${assignmentId}`),
   getLatestDraft: (assignmentId) => api.get(`/api/student/drafts/assignment/${assignmentId}/latest`),
-  
+
   getScores: () => api.get('/api/student/scores'),
   getScoreByAssignment: (assignmentId) => api.get(`/api/student/scores/assignment/${assignmentId}`),
   getScoreById: (id) => api.get(`/api/student/scores/${id}`),

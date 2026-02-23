@@ -20,8 +20,8 @@ async function autoEvaluateWithOllama(req, res) {
     }
 
     if (assignment.professorId !== professorId) {
-      return res.status(403).json({ 
-        error: 'You can only evaluate submissions for your own assignments' 
+      return res.status(403).json({
+        error: 'You can only evaluate submissions for your own assignments'
       });
     }
 
@@ -29,13 +29,18 @@ async function autoEvaluateWithOllama(req, res) {
       { field: 'assignmentId', operator: '==', value: assignment.id }
     ]);
 
+    let rubric;
     if (rubrics.length === 0) {
-      return res.status(404).json({ 
-        error: 'No rubric found for this assignment. Please create a rubric first.' 
-      });
+      console.log(`No rubric found for assignment ${assignment.id}, using default fallback.`);
+      rubric = {
+        criteria: [
+          { criterionId: 'fallback_1', name: 'Content Quality', maxPoints: 50 },
+          { criterionId: 'fallback_2', name: 'Code Structure', maxPoints: 50 }
+        ]
+      };
+    } else {
+      rubric = rubrics[0];
     }
-
-    const rubric = rubrics[0];
 
     const submissionData = {
       text: submission.fileContent,

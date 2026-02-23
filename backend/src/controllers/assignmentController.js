@@ -63,9 +63,22 @@ async function getAssignmentsByProfessor(req, res) {
       { field: 'professorId', operator: '==', value: professorId }
     ]);
 
+    // Dynamically calculate submissionCount for each assignment
+    const enrichedAssignments = await Promise.all(
+      assignments.map(async (assignment) => {
+        const subs = await queryDocuments(collections.SUBMISSIONS, [
+          { field: 'assignmentId', operator: '==', value: assignment.id }
+        ]);
+        return {
+          ...assignment,
+          submissionCount: subs.length
+        };
+      })
+    );
+
     return res.status(200).json({
-      count: assignments.length,
-      assignments
+      count: enrichedAssignments.length,
+      assignments: enrichedAssignments
     });
 
   } catch (error) {
@@ -79,13 +92,31 @@ async function getAssignmentsByProfessor(req, res) {
 
 async function getAllAssignments(req, res) {
   try {
+    const studentId = req.user.uid;
     const assignments = await queryDocuments(collections.ASSIGNMENTS, [
       { field: 'status', operator: '==', value: 'active' }
     ]);
 
+    const submissions = await queryDocuments(collections.SUBMISSIONS, [
+      { field: 'studentId', operator: '==', value: studentId }
+    ]);
+
+    const submissionMap = {};
+    submissions.forEach(sub => {
+      submissionMap[sub.assignmentId] = sub;
+    });
+
+    const enrichedAssignments = assignments.map(assignment => {
+      const sub = submissionMap[assignment.id];
+      if (sub) {
+        return { ...assignment, submitted: true, score: sub.score };
+      }
+      return { ...assignment, submitted: false };
+    });
+
     return res.status(200).json({
-      count: assignments.length,
-      assignments
+      count: enrichedAssignments.length,
+      assignments: enrichedAssignments
     });
 
   } catch (error) {
